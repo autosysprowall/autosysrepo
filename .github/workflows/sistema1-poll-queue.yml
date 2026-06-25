@@ -1,0 +1,49 @@
+name: Sistema 1 - Poll SharePoint Queue
+
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+    inputs:
+      top:
+        description: "Cantidad maxima de items recientes a leer"
+        required: false
+        default: "50"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sistema1-poll-sharepoint-queue
+  cancel-in-progress: false
+
+jobs:
+  poll-queue:
+    name: Read Cola_Automatizacion_Proyectos
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      MS_GRAPH_TENANT_ID: ${{ vars.MS_GRAPH_TENANT_ID }}
+      MS_GRAPH_CLIENT_ID: ${{ vars.MS_GRAPH_CLIENT_ID }}
+      MS_GRAPH_CLIENT_SECRET: ${{ secrets.MS_GRAPH_CLIENT_SECRET }}
+      SP_SITE_HOSTNAME: ${{ vars.SP_SITE_HOSTNAME }}
+      SP_SITE_PATH: ${{ vars.SP_SITE_PATH }}
+      SP_QUEUE_LIST_NAME: ${{ vars.SP_QUEUE_LIST_NAME }}
+      SP_QUEUE_LIST_ID: ${{ vars.SP_QUEUE_LIST_ID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Poll SharePoint queue
+        run: |
+          python scripts/sistema1_poll_queue.py --top "${{ github.event.inputs.top || '50' }}"
