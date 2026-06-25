@@ -261,7 +261,7 @@ def update_queue_fields(token: str, site_id: str, list_id: str, item_id: str, fi
     graph_patch(token, f"{GRAPH_BASE}/sites/{site_id}/lists/{list_id}/items/{item_id}/fields", fields)
 
 
-def trim_note(value: str, max_len: int = 1800) -> str:
+def trim_note(value: str, max_len: int = 240) -> str:
     value = re.sub(r"\s+", " ", value).strip()
     return value[:max_len]
 
@@ -368,7 +368,7 @@ def create_control_assignment(
         (("PresupuestoLink",), hyperlink_value(source_web_url, "Presupuesto aprobado")),
         (("GanttWorkingLink", "GanntWorkingLink"), hyperlink_value(gantt_web_url, "Gantt WORKING")),
         (("EstadoGantt", "EstadoGannt"), "Pendiente de asignación"),
-        (("FechaGanttGenerado",), datetime.now(timezone.utc).isoformat()),
+        (("FechaGanttGenerado",), datetime.now(timezone.utc).date().isoformat()),
         (("Notas",), notes),
     ]
     for candidates, value in assignments:
@@ -505,7 +505,7 @@ def process_queue_item(
             f"Hoja={build_result.selected_sheet}. "
             f"Filas={build_result.rows_written}. "
             f"Revision={build_result.review_rows}. "
-            f"Gantt={gantt_url}."
+            f"Gantt creado."
             f"{control_note}"
         )
         update_queue_fields(
@@ -515,7 +515,7 @@ def process_queue_item(
             item_id,
             {
                 "Estado": "Procesado",
-                "FechaProcesado": datetime.now(timezone.utc).isoformat(),
+                "FechaProcesado": datetime.now(timezone.utc).date().isoformat(),
                 "ProyectoID": identity.project_id,
                 "UltimoError": "",
                 "Notas": note,
@@ -532,7 +532,7 @@ def process_queue_item(
             message=note,
         )
     except Exception as exc:
-        error = trim_note(str(exc), 1500)
+        error = trim_note(str(exc), 240)
         update_queue_fields(
             token,
             site_id,
