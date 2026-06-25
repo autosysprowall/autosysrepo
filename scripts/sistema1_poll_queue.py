@@ -343,11 +343,24 @@ def upload_file_replace(token: str, site_id: str, local_path: Path, folder_path:
     )
 
 
-def hyperlink_value(url: str, label: str) -> dict[str, str]:
-    return {"Url": url, "Description": label}
+def list_control_items(token: str, site_id: str, list_id: str, top: int = 100) -> list[dict[str, Any]]:
+    data = graph_get(
+        token,
+        f"{GRAPH_BASE}/sites/{site_id}/lists/{list_id}/items"
+        f"?$top={top}&$orderby=createdDateTime desc&expand=fields",
+    )
+    return data.get("value") or []
 
 
-def create_control_assignment(
+def find_control_item_by_project(token: str, site_id: str, list_id: str, project_id: str) -> dict[str, Any] | None:
+    for item in list_control_items(token, site_id, list_id):
+        fields = item.get("fields") or {}
+        if str(fields.get("ProyectoID") or "").strip().casefold() == project_id.casefold():
+            return item
+    return None
+
+
+def upsert_control_assignment(
     token: str,
     site_id: str,
     control_list: dict[str, Any],
@@ -365,8 +378,6 @@ def create_control_assignment(
         (("Title",), f"{identity_project_id} - {identity_project_name}"),
         (("ProyectoID",), identity_project_id),
         (("NombreProyecto",), identity_project_name),
-        (("PresupuestoLink",), hyperlink_value(source_web_url, "Presupuesto aprobado")),
-        (("GanttWorkingLink", "GanntWorkingLink"), hyperlink_value(gantt_web_url, "Gantt WORKING")),
         (("EstadoGantt", "EstadoGannt"), "Pendiente de asignación"),
         (("FechaGanttGenerado",), datetime.now(timezone.utc).date().isoformat()),
         (("Notas",), notes),
@@ -379,24 +390,38 @@ def create_control_assignment(
     if not fields:
         raise RuntimeError("No se pudo mapear ningun campo de Control_Gantt_Asignaciones.")
 
-    try:
-        created = graph_post(
+    existing = find_control_item_by_project(token, site_id, control_list["id"], identity_project_id)
+    if existing:
+        graph_patch(
             token,
-            f"{GRAPH_BASE}/sites/{site_id}/lists/{control_list['id']}/items",
-            {"fields": fields},
+            f"{GRAPH_BASE}/sites/{site_id}/lists/{control_list['id']}/items/{existing['id']}/fields",
+            fields,
         )
-    except RuntimeError:
-        # Fallback: algunos tenants no aceptan objetos Hyperlink por Graph en create item.
-        safe_fields = {
-            key: value
-            for key, value in fields.items()
-            if not isinstance(value, dict)
-        }
-        created = graph_post(
-            token,
-            f"{GRAPH_BASE}/sites/{site_id}/lists/{control_list['id']}/items",
-            {"fields": safe_fields},
-        )
+        return str(existing.get("id") or "")
+
+    created = graph_post(
+        token,
+        f"{GRAPH_BASE}/sites/{site_id}/lists/{control_list['id']}/items",
+        {"fields": fields},
+    )
+    link_fields: dict[str, Any] = {}
+    for candidates, value in (
+        (("PresupuestoLink",), source_web_url),
+        (("GanttWorkingLink", "GanntWorkingLink"), gantt_web_url),
+    ):
+        field_name = pick_field(field_map, candidates)
+        if field_name and value:
+            link_fields[field_name] = value
+    if link_fields:
+        try:
+            graph_patch(
+                token,
+                f"{GRAPH_BASE}/sites/{site_id}/lists/{control_list['id']}/items/{created['id']}/fields",
+                link_fields,
+            )
+        except RuntimeError:
+            # Los campos link de algunas listas modernas no aceptan escritura por Graph fieldValueSet.
+            pass
     return str(created.get("id") or "")
 
 
@@ -485,7 +510,7 @@ def process_queue_item(
         control_note = ""
         if control_list:
             try:
-                control_id = create_control_assignment(
+                control_id = upsert_control_assignment(
                     token=token,
                     site_id=site_id,
                     control_list=control_list,
