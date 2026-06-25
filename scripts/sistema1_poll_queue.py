@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import sys
@@ -75,6 +76,34 @@ def acquire_token(settings: Settings) -> str:
             )
         )
     return str(result["access_token"])
+
+
+def decode_token_claims(token: str) -> dict[str, Any]:
+    try:
+        payload = token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        decoded = base64.urlsafe_b64decode(payload.encode("ascii"))
+        return json.loads(decoded)
+    except Exception:
+        return {}
+
+
+def print_token_diagnostics(token: str) -> None:
+    claims = decode_token_claims(token)
+    diagnostic = {
+        "aud": claims.get("aud"),
+        "appid": claims.get("appid") or claims.get("azp"),
+        "tid": claims.get("tid"),
+        "roles": claims.get("roles") or [],
+        "scp": claims.get("scp") or "",
+    }
+    print("Graph token diagnostic:")
+    print(json.dumps(diagnostic, ensure_ascii=False, sort_keys=True))
+    if not diagnostic["roles"] and not diagnostic["scp"]:
+        print(
+            "WARNING: El token no trae roles ni scopes. Para GitHub Actions con client secret, "
+            "la app de Entra necesita permisos de aplicacion de Microsoft Graph y admin consent."
+        )
 
 
 def graph_get(token: str, url: str) -> dict[str, Any]:
@@ -158,6 +187,7 @@ def main() -> int:
 
     settings = load_settings()
     token = acquire_token(settings)
+    print_token_diagnostics(token)
     site = resolve_site(token, settings)
     queue_list = resolve_list(token, site["id"], settings)
     items = list_queue_items(token, site["id"], queue_list["id"], max(1, args.top))
