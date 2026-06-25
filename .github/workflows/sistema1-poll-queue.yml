@@ -9,6 +9,10 @@ on:
         description: "Cantidad maxima de items recientes a leer"
         required: false
         default: "50"
+      max_items:
+        description: "Cantidad maxima de pendientes a procesar"
+        required: false
+        default: "5"
 
 permissions:
   contents: read
@@ -19,7 +23,7 @@ concurrency:
 
 jobs:
   poll-queue:
-    name: Read Cola_Automatizacion_Proyectos
+    name: Process Cola_Automatizacion_Proyectos
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -31,6 +35,9 @@ jobs:
       SP_SITE_PATH: ${{ vars.SP_SITE_PATH }}
       SP_QUEUE_LIST_NAME: ${{ vars.SP_QUEUE_LIST_NAME }}
       SP_QUEUE_LIST_ID: ${{ vars.SP_QUEUE_LIST_ID }}
+      SP_CONTROL_LIST_NAME: ${{ vars.SP_CONTROL_LIST_NAME || 'Control_Gantt_Asignaciones' }}
+      SP_CONTROL_LIST_ID: ${{ vars.SP_CONTROL_LIST_ID }}
+      SP_ACTIVE_PROJECTS_ROOT: ${{ vars.SP_ACTIVE_PROJECTS_ROOT || 'Proyectos/02_Activos' }}
 
     steps:
       - name: Checkout
@@ -54,7 +61,10 @@ jobs:
             echo "ready=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Poll SharePoint queue
+      - name: Process SharePoint queue
         if: steps.graph-auth.outputs.ready == 'true'
         run: |
-          python scripts/sistema1_poll_queue.py --top "${{ github.event.inputs.top || '50' }}"
+          python scripts/sistema1_poll_queue.py \
+            --top "${{ github.event.inputs.top || '50' }}" \
+            --max-items "${{ github.event.inputs.max_items || '5' }}" \
+            --process

@@ -13,8 +13,13 @@ Funcion:
 - Corre cada 15 minutos con cron `7,22,37,52 * * * *`.
 - Tambien puede ejecutarse manualmente con `workflow_dispatch`.
 - Lee la lista SharePoint `Cola_Automatizacion_Proyectos`.
-- Reporta cuantos items `Pendiente` existen.
-- No procesa ni modifica items todavia; este primer paso valida conectividad GitHub -> Microsoft Graph -> SharePoint.
+- Procesa items `Pendiente` con `EventType = presupuesto_aprobado`.
+- Marca el item como `Procesando`, incrementa `Intentos`, descarga el presupuesto y genera un Gantt WORKING.
+- Crea la carpeta del proyecto bajo `/Proyectos/02_Activos/`.
+- Copia el presupuesto aprobado directamente dentro de la carpeta del proyecto.
+- Sube el Gantt a la subcarpeta `gantts/`, sin crear carpeta `working`.
+- Actualiza la cola como `Procesado` o `Error`.
+- Si la lista `Control_Gantt_Asignaciones` esta disponible, crea un item de seguimiento con estado `Pendiente de asignación`.
 
 ## Variables configuradas
 
@@ -27,13 +32,24 @@ SP_SITE_HOSTNAME
 SP_SITE_PATH
 SP_QUEUE_LIST_NAME
 SP_QUEUE_LIST_ID
+SP_CONTROL_LIST_NAME
+SP_CONTROL_LIST_ID
+SP_ACTIVE_PROJECTS_ROOT
 ```
 
-## Secret pendiente
+`SP_CONTROL_LIST_NAME`, `SP_CONTROL_LIST_ID` y `SP_ACTIVE_PROJECTS_ROOT` son opcionales. Si no se configuran, el worker usa:
+
+```text
+Control_Gantt_Asignaciones
+(resuelve la lista por nombre)
+Proyectos/02_Activos
+```
+
+## Secret requerido
 
 GitHub Actions necesita autenticacion no interactiva. El login local por device code no funciona en runners.
 
-Falta crear este secret en GitHub:
+Debe existir este secret en GitHub:
 
 ```text
 MS_GRAPH_CLIENT_SECRET
@@ -65,7 +81,7 @@ gh secret set MS_GRAPH_CLIENT_SECRET
 Ejecutar manualmente:
 
 ```bash
-gh workflow run sistema1-poll-queue.yml
+gh workflow run sistema1-poll-queue.yml -f top=50 -f max_items=5
 ```
 
 Ver ultimo run:
@@ -74,3 +90,28 @@ Ver ultimo run:
 gh run list --workflow sistema1-poll-queue.yml --limit 5
 gh run view <run-id> --log
 ```
+
+## Comportamiento del Gantt generado
+
+El worker genera un archivo `.xlsx` con hoja `Gantt_Diario`.
+
+Columnas principales:
+
+- `ID_Gantt`
+- `Fuente_Fila`
+- `Tipo_Linea_Autosys`
+- `Item`
+- `CC`
+- `Actividad`
+- `Cantidad`
+- `Unidad`
+- `Monto_Referencia`
+- `Fecha_Inicio`
+- `Fecha_Fin`
+- `Estado_Planificacion`
+- `Requiere_Revision`
+- `Motivo_Revision`
+
+Las fechas por actividad quedan vacias. El ingeniero residente las completa. El cronograma diario se pinta automaticamente con barras azules cuando `Fecha_Inicio` y `Fecha_Fin` intersectan los dias del calendario.
+
+El builder no usa OpenAI todavia en GitHub Actions. La clasificacion inicial es conservadora y marca para revision filas ambiguas, indirectos, totales o filas con columnas de unidad sospechosas.
