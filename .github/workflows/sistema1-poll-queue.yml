@@ -44,6 +44,17 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
 
+      - name: Validate Microsoft Graph auth configuration
+        id: graph-auth
+        run: |
+          if [ -z "$MS_GRAPH_CLIENT_SECRET" ]; then
+            echo "::warning::MS_GRAPH_CLIENT_SECRET is not configured. Skipping SharePoint queue poll until the Entra app client secret is added to GitHub Secrets."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Poll SharePoint queue
+        if: steps.graph-auth.outputs.ready == 'true'
         run: |
           python scripts/sistema1_poll_queue.py --top "${{ github.event.inputs.top || '50' }}"
