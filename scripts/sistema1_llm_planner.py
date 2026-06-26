@@ -37,6 +37,7 @@ Lectura de presupuesto:
 - Si una linea es "ingeniero residente", "ingeniero residente obra", residente, supervision administrativa o personal de control sin accion ejecutable, dejala fuera como ADMIN_INDIRECT/NO_CRONOGRAMA.
 - MT produccion o material de produccion normalmente es material/recurso de fabrica; no lo conviertas en actividad salvo que la descripcion indique fabricacion/produccion ejecutable.
 - MO, Mano de Obra, MO acero, MO concreto, MO instalacion, MO acabados u otras manos de obra pueden ser actividades cronogramables si describen trabajo ejecutable. La unidad m2, m3, kg, ml, hr o similar en MO suele ser base de cobro de los obreros; NO excluyas una MO solo por tener unidad de medicion. Clasifica por la accion: MO acero/concreto de produccion o fabricacion suele ser FABRICA; MO instalacion, vaciado, fundacion o montaje suele ser CAMPO; MO pintura/pasteo/acabados suele ser ACABADOS.
+- Si la unidad es mes, meses o mensual, conserva la fila en el cronograma. En presupuestos de obra suele representar permanencia, servicio o actividad sostenida en campo. Clasificala como CAMPO salvo que el texto demuestre claramente que es PRELIMINARES, FABRICA o ACABADOS.
 - La unidad m2/m3/kg nunca decide sola. Es evidencia de metrado/base de cobro, no prueba automatica de actividad. Si la descripcion es alquiler, costo, precio, material, subtotal, equipo o indirecto, NO_CRONOGRAMA aunque tenga m2/m3/kg.
 - Grua solo es CAMPO si representa una actividad operativa de izaje, montaje, descarga o movilizacion necesaria en obra. Alquiler de grua como costo/equipo sin accion debe ser ADMIN_INDIRECT o RESOURCE_ONLY con NO_CRONOGRAMA.
 - Suministro de paredes/paneles/columnas puede significar disponibilidad o entrega a campo. Si dice fabricacion/produccion en planta, clasificalo FABRICA; si dice suministro/descarga/traslado/entrega/montaje en obra, clasificalo CAMPO.
@@ -105,6 +106,7 @@ Reglas:
 - Si no hay objeto fabricado asociado, objeto_fabricado_planta debe ser "" y requiere_movilizacion_campo debe ser false.
 - objetos_fabricados_planta debe ser una lista consolidada de objetos fabricados en planta detectados en este lote.
 - No uses m2/m3/kg/ml/hr como criterio unico para incluir o excluir. En MO puede ser base de pago; en materiales/costos puede ser solo metrado.
+- Si la unidad es mes, meses o mensual, include_in_cronograma debe ser true. Usa CAMPO por defecto porque normalmente corresponde a obra, permanencia o servicio mensual.
 - Si detectas MO ejecutable, incluyela y clasificala por accion: fabrica para produccion/acero/concreto en planta; campo para instalacion/fundacion/vaciado/montaje; acabados para pintura/pasteo/cielo raso.
 - Si detectas MT produccion/material de produccion sin accion ejecutable, dejalo fuera como RESOURCE_ONLY/NO_CRONOGRAMA.
 - Si detectas alquiler de grua/equipo sin accion de izaje/montaje/descarga, dejalo fuera como ADMIN_INDIRECT o RESOURCE_ONLY.

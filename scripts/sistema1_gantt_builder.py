@@ -136,6 +136,11 @@ def is_resident_engineer_row(*values: Any) -> bool:
     return any(term in text for term in ("ingeniero residente", "residente obra", "ingeniero residente obra"))
 
 
+def is_month_unit(value: Any) -> bool:
+    text = normalize_text(value).strip(". ")
+    return text in {"mes", "meses", "mensual"}
+
+
 def safe_path_name(value: str, max_len: int = 95) -> str:
     name = re.sub(r'[<>:"/\\|?*\x00-\x1F]+', "_", value).strip(" ._")
     name = re.sub(r"\s+", " ", name)
@@ -351,6 +356,8 @@ def classify_row(description: str, item: Any, quantity: Any, unit: Any, amount: 
     has_unit = is_non_empty(unit)
     has_amount = is_non_empty(amount)
 
+    if is_month_unit(unit) and text:
+        return "ACTIVIDAD_PROBABLE", False, "Unidad mes: se conserva para cronograma de obra."
     if is_resident_engineer_row(description, item, quantity, unit, amount):
         return "NO_CRONOGRAMA_PROBABLE", True, "Ingeniero residente obra es control/administracion, no actividad cronogramable."
     if not text and has_amount:
@@ -539,6 +546,8 @@ def apply_llm_plan(
 
 
 def is_chronogram_row(row: BudgetRow) -> bool:
+    if is_month_unit(row.unit):
+        return True
     if is_resident_engineer_row(row.description, row.item, row.code):
         return False
     if row.line_type in CATEGORY_ORDER:
@@ -551,6 +560,8 @@ def is_chronogram_row(row: BudgetRow) -> bool:
 
 
 def category_for_row(row: BudgetRow) -> str:
+    if is_month_unit(row.unit):
+        return "CAMPO"
     if row.line_type in CATEGORY_ORDER:
         return row.line_type
     text = normalize_text(" ".join(display_text(value, 120) for value in (row.description, row.item, row.code)))
