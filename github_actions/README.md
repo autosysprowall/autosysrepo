@@ -15,7 +15,7 @@ Funcion:
 - Lee la lista SharePoint `Cola_Automatizacion_Proyectos`.
 - Procesa items `Pendiente` con `EventType = presupuesto_aprobado`.
 - Marca el item como `Procesando`, incrementa `Intentos`, descarga el presupuesto y genera un Gantt WORKING.
-- Crea la carpeta del proyecto bajo `/Proyectos/02_Activos/`.
+- Crea la carpeta del proyecto bajo `/Proyectos/Proyectos Activos/`.
 - Copia el presupuesto aprobado directamente dentro de la carpeta del proyecto.
 - Sube el Gantt a la subcarpeta `gantts/`, sin crear carpeta `working`.
 - Actualiza la cola como `Procesado` o `Error`.
@@ -42,7 +42,7 @@ SP_ACTIVE_PROJECTS_ROOT
 ```text
 Control_Gantt_Asignaciones
 (resuelve la lista por nombre)
-Proyectos/02_Activos
+Proyectos/Proyectos Activos
 ```
 
 ## Secret requerido

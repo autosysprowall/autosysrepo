@@ -20,7 +20,7 @@ from sistema1_gantt_builder import derive_project_identity, build_gantt_workbook
 
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
-DEFAULT_ACTIVE_PROJECTS_ROOT = "Proyectos/02_Activos"
+DEFAULT_ACTIVE_PROJECTS_ROOT = "Proyectos/Proyectos Activos"
 
 
 @dataclass(frozen=True)

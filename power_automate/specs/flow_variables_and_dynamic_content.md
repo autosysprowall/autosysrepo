@@ -8,7 +8,7 @@ Los nombres internos exactos pueden variar segun idioma del tenant y tipo de col
 |---|---|
 | Raiz documental | `/Proyectos/` |
 | Inbox presupuestos | `/Proyectos/presupuestos aprobados/` |
-| Activos | `/Proyectos/02_Activos/` |
+| Activos | `/Proyectos/Proyectos Activos/` |
 | Terminados intocable | `/Proyectos/PROYECTOS TERMINADOS/` |
 | Legacy | `/Proyectos/99_Legacy/` |
 

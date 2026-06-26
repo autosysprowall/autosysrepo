@@ -37,7 +37,7 @@ jobs:
       SP_QUEUE_LIST_ID: ${{ vars.SP_QUEUE_LIST_ID }}
       SP_CONTROL_LIST_NAME: ${{ vars.SP_CONTROL_LIST_NAME || 'Control_Gantt_Asignaciones' }}
       SP_CONTROL_LIST_ID: ${{ vars.SP_CONTROL_LIST_ID }}
-      SP_ACTIVE_PROJECTS_ROOT: ${{ vars.SP_ACTIVE_PROJECTS_ROOT || 'Proyectos/02_Activos' }}
+      SP_ACTIVE_PROJECTS_ROOT: ${{ vars.SP_ACTIVE_PROJECTS_ROOT || 'Proyectos/Proyectos Activos' }}
 
     steps:
       - name: Checkout

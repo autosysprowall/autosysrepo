@@ -31,7 +31,7 @@ Raiz documental:
 ```text
 /Proyectos/
 ├── presupuestos aprobados/
-├── 02_Activos/
+├── Proyectos Activos/
 ├── PROYECTOS TERMINADOS/
 └── 99_Legacy/
 ```
