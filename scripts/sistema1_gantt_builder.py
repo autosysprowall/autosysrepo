@@ -19,10 +19,11 @@ from sistema1_llm_planner import request_llm_plan
 HEADER_ROW = 10
 WEEKDAY_ROW = 11
 DATA_START_ROW = 12
-START_DATE_COL = 10
-END_DATE_COL = 11
-DAILY_START_COL = 15
+START_DATE_COL = 5
+END_DATE_COL = 6
+DAILY_START_COL = 9
 DEFAULT_WINDOW_DAYS = 90
+CATEGORY_ORDER = ("PRELIMINARES", "FABRICA", "CAMPO", "ACABADOS")
 
 TOTAL_TERMS = ("subtotal", "total", "gran total", "itbms", "impuesto", "utilidad", "margen", "precio total")
 INDIRECT_TERMS = ("alquiler", "combustible", "baño", "banos", "grúa", "grua", "campamento", "administracion")
@@ -128,6 +129,11 @@ def display_text(value: Any, max_len: int = 200) -> str:
         text = str(value)
     text = re.sub(r"\s+", " ", text).strip()
     return text[:max_len]
+
+
+def is_resident_engineer_row(*values: Any) -> bool:
+    text = normalize_text(" ".join(display_text(value, 120) for value in values))
+    return any(term in text for term in ("ingeniero residente", "residente obra", "ingeniero residente obra"))
 
 
 def safe_path_name(value: str, max_len: int = 95) -> str:
@@ -345,6 +351,8 @@ def classify_row(description: str, item: Any, quantity: Any, unit: Any, amount: 
     has_unit = is_non_empty(unit)
     has_amount = is_non_empty(amount)
 
+    if is_resident_engineer_row(description, item, quantity, unit, amount):
+        return "NO_CRONOGRAMA_PROBABLE", True, "Ingeniero residente obra es control/administracion, no actividad cronogramable."
     if not text and has_amount:
         return "AMBIGUO", True, "Tiene monto pero no descripcion clara."
     if any(term in row_text for term in TOTAL_TERMS):
@@ -530,24 +538,53 @@ def apply_llm_plan(
     return [item[3] for item in sorted(planned, key=lambda item: (item[0], item[1], item[2]))], notes
 
 
+def is_chronogram_row(row: BudgetRow) -> bool:
+    if is_resident_engineer_row(row.description, row.item, row.code):
+        return False
+    if row.line_type in CATEGORY_ORDER:
+        return True
+    if row.line_type in {"NO_CRONOGRAMA", "NO_CRONOGRAMA_PROBABLE"}:
+        return False
+    if any(term in normalize_text(row.line_type) for term in ("total", "resource", "admin", "indirect")):
+        return False
+    return row.line_type in {"ACTIVIDAD_PROBABLE", "AGRUPADOR"}
+
+
+def category_for_row(row: BudgetRow) -> str:
+    if row.line_type in CATEGORY_ORDER:
+        return row.line_type
+    text = normalize_text(" ".join(display_text(value, 120) for value in (row.description, row.item, row.code)))
+    if any(term in text for term in ("pintura", "pasteo", "acabado", "limpieza final", "terminacion")):
+        return "ACABADOS"
+    if any(term in text for term in ("fabricacion", "produccion", "planta", "formaleta", "molde", "columna", "panel", "pared")):
+        return "FABRICA"
+    if any(term in text for term in ("instalacion", "montaje", "campo", "obra", "fundacion", "losa", "vaciado", "grua")):
+        return "CAMPO"
+    return "PRELIMINARES"
+
+
+def filter_cronogram_rows(rows: list[BudgetRow]) -> tuple[list[BudgetRow], list[str]]:
+    kept = [row for row in rows if is_chronogram_row(row)]
+    removed = [row for row in rows if not is_chronogram_row(row)]
+    notes = [f"Filas fuera de cronograma omitidas del Gantt: {len(removed)}."]
+    if removed:
+        sample = ", ".join(str(row.source_row) for row in removed[:12])
+        notes.append(f"Primeras filas omitidas: {sample}.")
+    return kept, notes
+
+
 def style_base_sheet(ws) -> None:
     ws.sheet_view.showGridLines = False
     ws.freeze_panes = None
     ws.auto_filter.ref = None
     ws.column_dimensions["A"].width = 11
-    ws.column_dimensions["B"].width = 18
-    ws.column_dimensions["C"].width = 22
-    ws.column_dimensions["D"].width = 13
-    ws.column_dimensions["E"].width = 16
-    ws.column_dimensions["F"].width = 48
-    ws.column_dimensions["G"].width = 12
-    ws.column_dimensions["H"].width = 10
-    ws.column_dimensions["I"].width = 14
-    ws.column_dimensions["J"].width = 13
-    ws.column_dimensions["K"].width = 13
-    ws.column_dimensions["L"].width = 18
-    ws.column_dimensions["M"].width = 16
-    ws.column_dimensions["N"].width = 45
+    ws.column_dimensions["B"].width = 58
+    ws.column_dimensions["C"].width = 12
+    ws.column_dimensions["D"].width = 10
+    ws.column_dimensions["E"].width = 13
+    ws.column_dimensions["F"].width = 13
+    ws.column_dimensions["G"].width = 18
+    ws.column_dimensions["H"].width = 42
 
 
 def write_daily_headers(ws, start: date, end: date) -> int:
@@ -562,20 +599,14 @@ def write_daily_headers(ws, start: date, end: date) -> int:
     )
 
     headers = [
-        "ID_Gantt",
         "Fuente_Fila",
-        "Tipo_Linea_Autosys",
-        "Item",
-        "CC",
         "Actividad",
         "Cantidad",
         "Unidad",
-        "Monto_Referencia",
         "Fecha_Inicio",
         "Fecha_Fin",
         "Estado_Planificacion",
-        "Requiere_Revision",
-        "Motivo_Revision",
+        "Comentarios",
     ]
     for col_idx, header in enumerate(headers, start=1):
         cell = ws.cell(HEADER_ROW, col_idx)
@@ -647,11 +678,7 @@ def add_validations(ws, data_end: int) -> None:
     date_validation.error = "Ingrese una fecha valida."
     date_validation.errorTitle = "Fecha invalida"
     ws.add_data_validation(date_validation)
-    date_validation.add(f"J{DATA_START_ROW}:K{data_end}")
-
-    review_validation = DataValidation(type="list", formula1='"SI,NO"', allow_blank=False)
-    ws.add_data_validation(review_validation)
-    review_validation.add(f"M{DATA_START_ROW}:M{data_end}")
+    date_validation.add(f"E{DATA_START_ROW}:F{data_end}")
 
     status_validation = DataValidation(
         type="list",
@@ -659,7 +686,7 @@ def add_validations(ws, data_end: int) -> None:
         allow_blank=True,
     )
     ws.add_data_validation(status_validation)
-    status_validation.add(f"L{DATA_START_ROW}:L{data_end}")
+    status_validation.add(f"G{DATA_START_ROW}:G{data_end}")
 
 
 def add_bar_formatting(ws, data_end: int, calendar_end_col: int) -> None:
@@ -678,16 +705,16 @@ def add_bar_formatting(ws, data_end: int, calendar_end_col: int) -> None:
             cell.alignment = Alignment(horizontal="center", vertical="center")
         row_range = f"{first_col}{row_idx}:{last_col}{row_idx}"
         formula = (
-            f'=AND($J{row_idx}<>"",$K{row_idx}<>"",'
-            f'{first_col}$10>=$J{row_idx},'
-            f'{first_col}$10<=$K{row_idx})'
+            f'=AND($E{row_idx}<>"",$F{row_idx}<>"",'
+            f'{first_col}$10>=$E{row_idx},'
+            f'{first_col}$10<=$F{row_idx})'
         )
         ws.conditional_formatting.add(row_range, FormulaRule(formula=[formula], fill=bar_fill))
 
     ws.conditional_formatting.add(
-        f"J{DATA_START_ROW}:K{data_end}",
+        f"E{DATA_START_ROW}:F{data_end}",
         FormulaRule(
-            formula=[f'=AND($J{DATA_START_ROW}<>"",$K{DATA_START_ROW}<>"",$K{DATA_START_ROW}<$J{DATA_START_ROW})'],
+            formula=[f'=AND($E{DATA_START_ROW}<>"",$F{DATA_START_ROW}<>"",$F{DATA_START_ROW}<$E{DATA_START_ROW})'],
             fill=invalid_fill,
         ),
     )
@@ -700,47 +727,79 @@ def write_budget_rows(ws, rows: list[BudgetRow]) -> int:
         top=Side(style="thin", color="B7C9D8"),
         bottom=Side(style="thin", color="B7C9D8"),
     )
-    section_fill = PatternFill("solid", fgColor="E7EEF7")
+    section_fill = PatternFill("solid", fgColor="D9EAF7")
     review_fill = PatternFill("solid", fgColor="FFF2CC")
     data_end = DATA_START_ROW - 1
-    for index, row in enumerate(rows, start=1):
-        row_idx = DATA_START_ROW + index - 1
-        data_end = row_idx
-        values = [
-            f"G-{index:03d}",
-            row.source_row,
-            row.line_type,
-            row.item,
-            row.code,
-            row.description,
-            row.quantity,
-            row.unit,
-            row.amount,
-            None,
-            None,
-            "Pendiente",
-            "SI" if row.requires_review else "NO",
-            row.review_reason,
-        ]
-        for col_idx, value in enumerate(values, start=1):
+
+    grouped: dict[str, list[BudgetRow]] = {category: [] for category in CATEGORY_ORDER}
+    for row in rows:
+        grouped.setdefault(category_for_row(row), []).append(row)
+
+    row_idx = DATA_START_ROW
+    for category in CATEGORY_ORDER:
+        category_rows = grouped.get(category, [])
+        if not category_rows:
+            continue
+
+        ws.cell(row_idx, 1).value = category
+        for col_idx in range(1, DAILY_START_COL):
             cell = ws.cell(row_idx, col_idx)
-            cell.value = value
+            cell.fill = section_fill
+            cell.font = Font(bold=True, color="1F3864")
             cell.border = border
-            cell.alignment = Alignment(vertical="center", wrap_text=col_idx in {3, 6, 14})
-            if row.line_type == "AGRUPADOR":
-                cell.fill = section_fill
-                cell.font = Font(bold=True)
-            elif row.requires_review:
-                cell.fill = review_fill
-        ws.cell(row_idx, 9).number_format = '#,##0.00'
-        ws.cell(row_idx, 10).number_format = "dd/mm/yyyy"
-        ws.cell(row_idx, 11).number_format = "dd/mm/yyyy"
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+        data_end = row_idx
+        row_idx += 1
+
+        for row in category_rows:
+            values = [
+                row.source_row,
+                row.description,
+                row.quantity,
+                row.unit,
+                None,
+                None,
+                "Pendiente",
+                row.review_reason if row.requires_review else "",
+            ]
+            for col_idx, value in enumerate(values, start=1):
+                cell = ws.cell(row_idx, col_idx)
+                cell.value = value
+                cell.border = border
+                cell.alignment = Alignment(vertical="center", wrap_text=col_idx in {2, 8})
+                if row.requires_review:
+                    cell.fill = review_fill
+            ws.cell(row_idx, 5).number_format = "dd/mm/yyyy"
+            ws.cell(row_idx, 6).number_format = "dd/mm/yyyy"
+            data_end = row_idx
+            row_idx += 1
+
+    extra_categories = sorted(category for category in grouped if category not in CATEGORY_ORDER and grouped[category])
+    for category in extra_categories:
+        ws.cell(row_idx, 1).value = category
+        for col_idx in range(1, DAILY_START_COL):
+            cell = ws.cell(row_idx, col_idx)
+            cell.fill = section_fill
+            cell.font = Font(bold=True, color="1F3864")
+            cell.border = border
+        data_end = row_idx
+        row_idx += 1
+        for row in grouped[category]:
+            values = [row.source_row, row.description, row.quantity, row.unit, None, None, "Pendiente", row.review_reason]
+            for col_idx, value in enumerate(values, start=1):
+                cell = ws.cell(row_idx, col_idx)
+                cell.value = value
+                cell.border = border
+                cell.alignment = Alignment(vertical="center", wrap_text=col_idx in {2, 8})
+            ws.cell(row_idx, 5).number_format = "dd/mm/yyyy"
+            ws.cell(row_idx, 6).number_format = "dd/mm/yyyy"
+            data_end = row_idx
+            row_idx += 1
 
     if not rows:
         data_end = DATA_START_ROW
-        ws.cell(DATA_START_ROW, 6).value = "No se detectaron actividades en el presupuesto. Requiere revision manual."
-        ws.cell(DATA_START_ROW, 13).value = "SI"
-        ws.cell(DATA_START_ROW, 14).value = "El archivo no contiene un bloque presupuestario claro."
+        ws.cell(DATA_START_ROW, 2).value = "No se detectaron actividades cronogramables en el presupuesto. Requiere revision manual."
+        ws.cell(DATA_START_ROW, 8).value = "El archivo no contiene un bloque presupuestario claro o el LLM excluyo todo como no cronogramable."
     return data_end
 
 
@@ -786,6 +845,8 @@ def build_gantt_workbook(
         options=llm_options or LlmOptions(enabled=False),
     )
     notes.extend(llm_notes)
+    rows, filter_notes = filter_cronogram_rows(rows)
+    notes.extend(filter_notes)
 
     identity = derive_project_identity(source_file_name)
     wb = Workbook()

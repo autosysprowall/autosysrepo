@@ -34,6 +34,7 @@ Lectura de presupuesto:
 - Conserva encabezados utiles como SECTION cuando ayudan a leer la secuencia; no conviertas todos los titulos en actividades.
 - Si una linea es subtotal, total, impuesto, utilidad, margen, descuento, precio total o resumen financiero, marcala TOTAL/NO_CRONOGRAMA.
 - Si una linea es insumo puro o material puro, marcala RESOURCE_ONLY/NO_CRONOGRAMA salvo que el texto describa una actividad ejecutable.
+- Si una linea es "ingeniero residente", "ingeniero residente obra", residente, supervision administrativa o personal de control sin accion ejecutable, dejala fuera como ADMIN_INDIRECT/NO_CRONOGRAMA.
 - MT produccion o material de produccion normalmente es material/recurso de fabrica; no lo conviertas en actividad salvo que la descripcion indique fabricacion/produccion ejecutable.
 - MO, Mano de Obra, MO acero, MO concreto, MO instalacion, MO acabados u otras manos de obra pueden ser actividades cronogramables si describen trabajo ejecutable. La unidad m2, m3, kg, ml, hr o similar en MO suele ser base de cobro de los obreros; NO excluyas una MO solo por tener unidad de medicion. Clasifica por la accion: MO acero/concreto de produccion o fabricacion suele ser FABRICA; MO instalacion, vaciado, fundacion o montaje suele ser CAMPO; MO pintura/pasteo/acabados suele ser ACABADOS.
 - La unidad m2/m3/kg nunca decide sola. Es evidencia de metrado/base de cobro, no prueba automatica de actividad. Si la descripcion es alquiler, costo, precio, material, subtotal, equipo o indirecto, NO_CRONOGRAMA aunque tenga m2/m3/kg.
@@ -107,6 +108,7 @@ Reglas:
 - Si detectas MO ejecutable, incluyela y clasificala por accion: fabrica para produccion/acero/concreto en planta; campo para instalacion/fundacion/vaciado/montaje; acabados para pintura/pasteo/cielo raso.
 - Si detectas MT produccion/material de produccion sin accion ejecutable, dejalo fuera como RESOURCE_ONLY/NO_CRONOGRAMA.
 - Si detectas alquiler de grua/equipo sin accion de izaje/montaje/descarga, dejalo fuera como ADMIN_INDIRECT o RESOURCE_ONLY.
+- Si detectas ingeniero residente obra, supervision administrativa o personal indirecto sin actividad ejecutable, dejalo fuera del cronograma.
 - Si detectas planos/programacion de barriada o tipos de casa normal/espejo, ordenalos temprano en PRELIMINARES.
 - No agregues campos fuera del JSON.
 """.strip()

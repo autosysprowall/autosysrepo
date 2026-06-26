@@ -101,20 +101,16 @@ El worker genera un archivo `.xlsx` con hoja `Gantt_Diario`.
 
 Columnas principales:
 
-- `ID_Gantt`
 - `Fuente_Fila`
-- `Tipo_Linea_Autosys`
-- `Item`
-- `CC`
 - `Actividad`
 - `Cantidad`
 - `Unidad`
-- `Monto_Referencia`
 - `Fecha_Inicio`
 - `Fecha_Fin`
 - `Estado_Planificacion`
-- `Requiere_Revision`
-- `Motivo_Revision`
+- `Comentarios`
+
+El Gantt no incluye filas clasificadas como `NO_CRONOGRAMA`. Las actividades se separan con encabezados en negrita por categoria: `PRELIMINARES`, `FABRICA`, `CAMPO` y `ACABADOS`.
 
 Las fechas por actividad quedan vacias. El ingeniero residente las completa. El cronograma diario se pinta automaticamente con barras azules cuando `Fecha_Inicio` y `Fecha_Fin` intersectan los dias del calendario.
 
