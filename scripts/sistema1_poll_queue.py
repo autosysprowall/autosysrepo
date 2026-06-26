@@ -16,7 +16,7 @@ from urllib.parse import quote
 import msal
 import requests
 
-from sistema1_gantt_builder import derive_project_identity, build_gantt_workbook
+from sistema1_gantt_builder import LlmOptions, derive_project_identity, build_gantt_workbook
 
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
@@ -35,6 +35,8 @@ class Settings:
     control_list_name: str
     control_list_id: str | None
     active_projects_root: str
+    llm_mode: str
+    llm_model: str
 
 
 @dataclass(frozen=True)
@@ -77,6 +79,8 @@ def load_settings() -> Settings:
         control_list_name=env_value("SP_CONTROL_LIST_NAME", "Control_Gantt_Asignaciones"),
         control_list_id=env_value("SP_CONTROL_LIST_ID") or None,
         active_projects_root=env_value("SP_ACTIVE_PROJECTS_ROOT", DEFAULT_ACTIVE_PROJECTS_ROOT).strip("/"),
+        llm_mode=env_value("OPENAI_ACTIVITY_PLANNER_MODE", "live").lower(),
+        llm_model=env_value("OPENAI_ACTIVITY_PLANNER_MODEL", "gpt-4o-mini"),
     )
 
 
@@ -487,7 +491,13 @@ def process_queue_item(
         local_gantt = work_dir / "output" / identity.gantt_file_name
 
         source_item = download_drive_file(token, site_id, source_drive_path, local_budget)
-        build_result = build_gantt_workbook(local_budget, local_gantt, source_file_name)
+        llm_enabled = settings.llm_mode == "live"
+        build_result = build_gantt_workbook(
+            local_budget,
+            local_gantt,
+            source_file_name,
+            llm_options=LlmOptions(enabled=llm_enabled, model=settings.llm_model),
+        )
 
         budget_upload = upload_file_replace(
             token,

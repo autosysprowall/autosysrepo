@@ -38,6 +38,9 @@ jobs:
       SP_CONTROL_LIST_NAME: ${{ vars.SP_CONTROL_LIST_NAME || 'Control_Gantt_Asignaciones' }}
       SP_CONTROL_LIST_ID: ${{ vars.SP_CONTROL_LIST_ID }}
       SP_ACTIVE_PROJECTS_ROOT: ${{ vars.SP_ACTIVE_PROJECTS_ROOT || 'Proyectos/Proyectos Activos' }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_ACTIVITY_PLANNER_MODE: ${{ vars.OPENAI_ACTIVITY_PLANNER_MODE || 'live' }}
+      OPENAI_ACTIVITY_PLANNER_MODEL: ${{ vars.OPENAI_ACTIVITY_PLANNER_MODEL || 'gpt-4o-mini' }}
 
     steps:
       - name: Checkout

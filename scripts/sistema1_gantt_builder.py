@@ -13,6 +13,8 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 
+from sistema1_llm_planner import request_llm_plan
+
 
 HEADER_ROW = 10
 WEEKDAY_ROW = 11
@@ -93,6 +95,12 @@ class BuildResult:
     window_start: date
     window_end: date
     notes: list[str]
+
+
+@dataclass(frozen=True)
+class LlmOptions:
+    enabled: bool = False
+    model: str = ""
 
 
 def normalize_text(value: Any) -> str:
@@ -419,6 +427,109 @@ def extract_budget_rows(ws, header_row: int) -> list[BudgetRow]:
     return rows
 
 
+def row_to_llm_candidate(row: BudgetRow) -> dict[str, Any]:
+    return {
+        "candidate_id": f"R{row.source_row}",
+        "source_row": row.source_row,
+        "local_kind": row.line_type,
+        "item": display_text(row.item, 80),
+        "cc": display_text(row.code, 80),
+        "description": row.description,
+        "quantity": display_text(row.quantity, 80),
+        "unit": display_text(row.unit, 80),
+        "subtotal": display_text(row.amount, 80),
+        "local_reason": row.review_reason,
+    }
+
+
+def apply_llm_plan(
+    rows: list[BudgetRow],
+    *,
+    workbook_name: str,
+    sheet_name: str,
+    header_row: int,
+    options: LlmOptions,
+) -> tuple[list[BudgetRow], list[str]]:
+    if not options.enabled:
+        return rows, ["LLM actividad/cronograma: desactivado; se uso clasificacion local."]
+    if not rows:
+        return rows, ["LLM actividad/cronograma: sin filas candidatas."]
+
+    candidates = [row_to_llm_candidate(row) for row in rows]
+    try:
+        plan = request_llm_plan(
+            workbook_name=workbook_name,
+            sheet_name=sheet_name,
+            header_row=header_row,
+            candidates=candidates,
+            model=options.model or None,
+        )
+    except Exception as exc:
+        return rows, [f"LLM actividad/cronograma fallo; se uso clasificacion local. Error: {exc}"]
+
+    source_by_id = {f"R{row.source_row}": row for row in rows}
+    bucket_order = {"PRELIMINARES": 0, "FABRICA": 1, "CAMPO": 2, "ACABADOS": 3, "NO_CRONOGRAMA": 4}
+    planned: list[tuple[int, int, int, BudgetRow]] = []
+    missing = 0
+    for candidate_id, source in source_by_id.items():
+        decision = plan.decisions.get(candidate_id)
+        if not decision:
+            missing += 1
+            planned.append(
+                (
+                    4,
+                    999999,
+                    source.source_row,
+                    BudgetRow(
+                        source_row=source.source_row,
+                        line_type="NO_CRONOGRAMA",
+                        item=source.item,
+                        code=source.code,
+                        description=source.description,
+                        quantity=source.quantity,
+                        unit=source.unit,
+                        amount=source.amount,
+                        requires_review=True,
+                        review_reason="LLM no devolvio decision para esta fila; requiere revision.",
+                    ),
+                )
+            )
+            continue
+
+        include = decision.include_in_cronograma and decision.planning_bucket != "NO_CRONOGRAMA"
+        line_type = decision.planning_bucket if include else "NO_CRONOGRAMA"
+        description = decision.actividad_normalizada or source.description
+        review = decision.confidence != "ALTA" or not include
+        reason = f"LLM {decision.confidence}: {decision.reason or 'Sin razon.'}"
+        planned.append(
+            (
+                bucket_order.get(decision.planning_bucket, 4),
+                decision.orden_cronologico,
+                source.source_row,
+                BudgetRow(
+                    source_row=source.source_row,
+                    line_type=line_type,
+                    item=source.item,
+                    code=source.code,
+                    description=description,
+                    quantity=source.quantity,
+                    unit=source.unit,
+                    amount=source.amount,
+                    requires_review=review,
+                    review_reason=reason,
+                ),
+            )
+        )
+
+    notes = [
+        "LLM actividad/cronograma: activo.",
+        f"LLM filas evaluadas={len(rows)}; decisiones={len(plan.decisions)}; faltantes={missing}.",
+        f"LLM uso tokens={plan.usage.get('total_tokens', 0)} en {plan.usage.get('batches', 0)} lote(s).",
+    ]
+    notes.extend(f"LLM advertencia: {warning}" for warning in plan.warnings[:5])
+    return [item[3] for item in sorted(planned, key=lambda item: (item[0], item[1], item[2]))], notes
+
+
 def style_base_sheet(ws) -> None:
     ws.sheet_view.showGridLines = False
     ws.freeze_panes = None
@@ -651,7 +762,12 @@ def write_metadata_sheet(wb, identity: ProjectIdentity, source_file: str, select
     ws.freeze_panes = None
 
 
-def build_gantt_workbook(input_path: Path, output_path: Path, source_file_name: str) -> BuildResult:
+def build_gantt_workbook(
+    input_path: Path,
+    output_path: Path,
+    source_file_name: str,
+    llm_options: LlmOptions | None = None,
+) -> BuildResult:
     source_wb = load_workbook(input_path, data_only=True, read_only=False)
     try:
         selected_sheet = select_budget_sheet(source_wb)
@@ -661,6 +777,15 @@ def build_gantt_workbook(input_path: Path, output_path: Path, source_file_name: 
         window_start, window_end, notes = read_project_window(source_wb)
     finally:
         source_wb.close()
+
+    rows, llm_notes = apply_llm_plan(
+        rows,
+        workbook_name=source_file_name,
+        sheet_name=selected_sheet,
+        header_row=header_row,
+        options=llm_options or LlmOptions(enabled=False),
+    )
+    notes.extend(llm_notes)
 
     identity = derive_project_identity(source_file_name)
     wb = Workbook()

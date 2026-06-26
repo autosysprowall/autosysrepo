@@ -15,6 +15,7 @@ Funcion:
 - Lee la lista SharePoint `Cola_Automatizacion_Proyectos`.
 - Procesa items `Pendiente` con `EventType = presupuesto_aprobado`.
 - Marca el item como `Procesando`, incrementa `Intentos`, descarga el presupuesto y genera un Gantt WORKING.
+- Usa OpenAI para clasificar/reordenar actividades si `OPENAI_API_KEY` esta configurada.
 - Crea la carpeta del proyecto bajo `/Proyectos/Proyectos Activos/`.
 - Copia el presupuesto aprobado directamente dentro de la carpeta del proyecto.
 - Sube el Gantt a la subcarpeta `gantts/`, sin crear carpeta `working`.
@@ -35,6 +36,8 @@ SP_QUEUE_LIST_ID
 SP_CONTROL_LIST_NAME
 SP_CONTROL_LIST_ID
 SP_ACTIVE_PROJECTS_ROOT
+OPENAI_ACTIVITY_PLANNER_MODE
+OPENAI_ACTIVITY_PLANNER_MODEL
 ```
 
 `SP_CONTROL_LIST_NAME`, `SP_CONTROL_LIST_ID` y `SP_ACTIVE_PROJECTS_ROOT` son opcionales. Si no se configuran, el worker usa:
@@ -53,6 +56,7 @@ Debe existir este secret en GitHub:
 
 ```text
 MS_GRAPH_CLIENT_SECRET
+OPENAI_API_KEY
 ```
 
 Debe venir de Microsoft Entra ID para la app:
@@ -114,4 +118,4 @@ Columnas principales:
 
 Las fechas por actividad quedan vacias. El ingeniero residente las completa. El cronograma diario se pinta automaticamente con barras azules cuando `Fecha_Inicio` y `Fecha_Fin` intersectan los dias del calendario.
 
-El builder no usa OpenAI todavia en GitHub Actions. La clasificacion inicial es conservadora y marca para revision filas ambiguas, indirectos, totales o filas con columnas de unidad sospechosas.
+El builder usa OpenAI cuando `OPENAI_ACTIVITY_PLANNER_MODE=live` y el secret `OPENAI_API_KEY` existe. Si falla o falta la key, cae a clasificacion local conservadora y deja nota en la hoja `Datos`.
