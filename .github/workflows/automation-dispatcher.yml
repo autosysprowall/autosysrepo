@@ -21,6 +21,11 @@ on:
         description: "ID opcional para limitar Sistema 2 a un solo proyecto"
         required: false
         default: ""
+      skip_system1:
+        description: "Omitir Sistema 1 durante una prueba aislada de tracking"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -90,8 +95,13 @@ jobs:
           OPENAI_ACTIVITY_PLANNER_MODE: ${{ vars.OPENAI_ACTIVITY_PLANNER_MODE || 'live' }}
           OPENAI_ACTIVITY_PLANNER_MODEL: ${{ vars.OPENAI_ACTIVITY_PLANNER_MODEL || 'gpt-4o-mini' }}
         run: |
-          python src/automation_dispatcher.py \
-            --top "${{ github.event.inputs.top || '50' }}" \
-            --max-items "${{ github.event.inputs.max_items || '5' }}" \
-            --item-id "${{ github.event.inputs.item_id || '' }}" \
+          args=(
+            --top "${{ github.event.inputs.top || '50' }}"
+            --max-items "${{ github.event.inputs.max_items || '5' }}"
+            --item-id "${{ github.event.inputs.item_id || '' }}"
             --control-item-id "${{ github.event.inputs.control_item_id || '' }}"
+          )
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.skip_system1 }}" = "true" ]; then
+            args+=(--skip-system1)
+          fi
+          python src/automation_dispatcher.py "${args[@]}"
