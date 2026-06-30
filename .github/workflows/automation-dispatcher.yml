@@ -36,6 +36,11 @@ on:
         required: false
         type: boolean
         default: false
+      collect_santa_cecilia_diagnostic:
+        description: "Descargar temporalmente los dos Excel de Santa Cecilia como artefacto"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -88,7 +93,10 @@ jobs:
           echo "Required secrets are configured."
 
       - name: Reset Sistema 1 data and requeue official budgets
-        if: github.event_name == 'workflow_dispatch' && inputs.reset_system1_data
+        if: >-
+          github.event_name == 'workflow_dispatch' &&
+          inputs.reset_system1_data &&
+          !inputs.collect_santa_cecilia_diagnostic
         env:
           MS_GRAPH_TENANT_ID: ${{ secrets.MS_TENANT_ID }}
           MS_GRAPH_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
@@ -106,7 +114,30 @@ jobs:
             --execute \
             --confirm-active-root "Proyectos/Proyectos Activos"
 
+      - name: Collect Santa Cecilia diagnostic workbooks
+        if: github.event_name == 'workflow_dispatch' && inputs.collect_santa_cecilia_diagnostic
+        env:
+          MS_GRAPH_TENANT_ID: ${{ secrets.MS_TENANT_ID }}
+          MS_GRAPH_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
+          MS_GRAPH_CLIENT_SECRET: ${{ secrets.MS_CLIENT_SECRET || secrets.MS_GRAPH_CLIENT_SECRET }}
+          SP_SITE_HOSTNAME: ${{ vars.SP_SITE_HOSTNAME || 'sciprowall.sharepoint.com' }}
+          SP_SITE_PATH: ${{ vars.SP_SITE_PATH || '/sites/PROYECTOSPROWALL' }}
+          SP_QUEUE_LIST_NAME: ${{ vars.SP_QUEUE_LIST_NAME || 'Cola_Automatizacion_Proyectos' }}
+          SP_ACTIVE_PROJECTS_ROOT: Proyectos/Proyectos Activos
+          DIAGNOSTIC_OUTPUT: diagnostic
+        run: python scripts/_collect_santa_cecilia_diagnostic.py
+
+      - name: Upload Santa Cecilia diagnostic workbooks
+        if: github.event_name == 'workflow_dispatch' && inputs.collect_santa_cecilia_diagnostic
+        uses: actions/upload-artifact@v4
+        with:
+          name: santa-cecilia-workbooks
+          path: diagnostic/*.xlsx
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Run SharePoint automation dispatcher
+        if: github.event_name != 'workflow_dispatch' || !inputs.collect_santa_cecilia_diagnostic
         env:
           MS_GRAPH_TENANT_ID: ${{ secrets.MS_TENANT_ID }}
           MS_GRAPH_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
