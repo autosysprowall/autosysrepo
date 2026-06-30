@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import unittest
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 from openpyxl import Workbook
 
@@ -11,6 +12,7 @@ from src.automation_dispatcher import (
     ControlRecord,
     Notification,
     WorkbookMetadata,
+    apply_notification_delivery_mode,
     due_tracking_kind,
     extract_workbook_metadata,
     run_system2,
@@ -299,6 +301,57 @@ class DispatcherTests(unittest.TestCase):
         summary = run_system2(EmptyBackend(), NOW, 20)
         self.assertEqual(0, summary["control_items"])
         self.assertEqual(0, summary["errors"])
+
+    def test_isolated_run_only_processes_requested_control_item(self) -> None:
+        class IsolatedBackend(FakeBackend):
+            def process_status_events(self, now: datetime, max_items: int = 20) -> int:
+                raise AssertionError("isolated run must not process global status events")
+
+            def control_records(self) -> list[ControlRecord]:
+                return [
+                    record(item_id="10", state="Aprobado / Versionado"),
+                    record(item_id="11", state="Aprobado / Versionado"),
+                ]
+
+        summary = run_system2(IsolatedBackend(), NOW, 20, "11")
+        self.assertEqual(1, summary["control_items"])
+        self.assertEqual(0, summary["status_events"])
+
+    def test_isolated_run_fails_clearly_for_unknown_control_item(self) -> None:
+        class IsolatedBackend(FakeBackend):
+            def control_records(self) -> list[ControlRecord]:
+                return [record(item_id="10")]
+
+        with self.assertRaisesRegex(RuntimeError, "No existe el item 99"):
+            run_system2(IsolatedBackend(), NOW, 20, "99")
+
+    def test_test_delivery_mode_redirects_and_removes_real_cc(self) -> None:
+        notification = Notification(
+            "Advertencia2",
+            "ingeniero@example.com",
+            "supervisor@example.com",
+            "Aviso",
+            "Contenido",
+        )
+        with patch.dict(
+            "os.environ",
+            {
+                "NOTIFICATION_DELIVERY_MODE": "test",
+                "NOTIFICATION_TEST_RECIPIENT": "auto.sys@prowallpanama.com",
+            },
+        ):
+            redirected = apply_notification_delivery_mode(notification)
+        self.assertEqual("auto.sys@prowallpanama.com", redirected.to)
+        self.assertEqual("", redirected.cc)
+        self.assertEqual("[PRUEBA] Aviso", redirected.subject)
+        self.assertIn("ingeniero@example.com", redirected.body)
+        self.assertIn("supervisor@example.com", redirected.body)
+
+    def test_live_delivery_mode_keeps_original_recipients(self) -> None:
+        notification = Notification("Advertencia1", "ingeniero@example.com", "", "Aviso", "Body")
+        with patch.dict("os.environ", {"NOTIFICATION_DELIVERY_MODE": "live"}):
+            delivered = apply_notification_delivery_mode(notification)
+        self.assertEqual(notification, delivered)
 
 
 def json_keys(patches: list[tuple[str, dict]]) -> str:

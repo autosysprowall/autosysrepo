@@ -115,6 +115,16 @@ La idempotencia combina:
 Una notificación existente en `Pendiente`, `Enviado` o `Error` impide crear un
 duplicado. Los errores se corrigen y reintentan sobre el mismo item.
 
+### Modo de entrega de pruebas
+
+Mientras `NOTIFICATION_DELIVERY_MODE=test`, todas las notificaciones se
+redireccionan a `NOTIFICATION_TEST_RECIPIENT` y el asunto recibe el prefijo
+`[PRUEBA]`. El cuerpo conserva los destinatarios reales previstos solamente como
+auditoría. La configuración inicial usa `auto.sys@prowallpanama.com`.
+
+No cambiar `NOTIFICATION_DELIVERY_MODE` a `live` hasta la aprobación del
+supervisor.
+
 ## Status del Excel
 
 Los Gantts nuevos incluyen en `Datos`:
@@ -146,6 +156,10 @@ python src/automation_dispatcher.py
 
 Primero procesa Sistema 1 y después Sistema 2. Si Sistema 1 falla, Sistema 2 se
 ejecuta igualmente y el job termina con error para conservar visibilidad.
+
+En una ejecución manual, `control_item_id` limita Sistema 2 a un único item de
+`Control_Gantt_Asignaciones`. Este modo aislado tampoco consume eventos globales
+de modificación de Gantt y debe usarse para las primeras pruebas controladas.
 
 El schedule activo es `17 * * * *` (una vez por hora, UTC). GitHub puede
 retrasar los schedules. El fallback diario documentado, no activado, es

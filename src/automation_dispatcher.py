@@ -329,6 +329,32 @@ def tracking_notification(record: ControlRecord, kind: str, days: int) -> Notifi
     return Notification("Vencimiento", recipients, cc, subject, body)
 
 
+def apply_notification_delivery_mode(notification: Notification) -> Notification:
+    mode = normalized(os.getenv("NOTIFICATION_DELIVERY_MODE", "test"))
+    if mode == "live":
+        return notification
+    test_recipient = normalize_emails(
+        os.getenv("NOTIFICATION_TEST_RECIPIENT", "auto.sys@prowallpanama.com")
+    )
+    if not is_valid_email(test_recipient):
+        raise RuntimeError(
+            "NOTIFICATION_TEST_RECIPIENT debe contener un único correo válido en modo test."
+        )
+    audit = (
+        "\n\n--- MODO PRUEBA ---\n"
+        f"Destinatario real previsto: {notification.to or '(vacío)'}\n"
+        f"CC real previsto: {notification.cc or '(vacío)'}\n"
+        "Este correo fue redirigido y no se envió a destinatarios reales."
+    )
+    return replace(
+        notification,
+        to=test_recipient,
+        cc="",
+        subject=f"[PRUEBA] {notification.subject}",
+        body=notification.body + audit,
+    )
+
+
 def days_since(assigned: datetime, now: datetime) -> int:
     return max(0, (now.astimezone(timezone.utc).date() - assigned.astimezone(timezone.utc).date()).days)
 
@@ -745,6 +771,7 @@ class SharePointBackend:
         return (item_id, kind.casefold()) in self._notification_keys
 
     def queue_notification(self, record: ControlRecord, notification: Notification) -> None:
+        notification = apply_notification_delivery_mode(notification)
         fields = self._map_updates(
             self.notification_fields,
             {
@@ -893,13 +920,26 @@ def run_system1(top: int, max_items: int, item_id: str = "") -> None:
         raise RuntimeError(f"Sistema 1 terminó con código {result.returncode}.")
 
 
-def run_system2(backend: SharePointBackend, now: datetime, max_status_items: int) -> dict[str, int]:
-    status_events = backend.process_status_events(now, max_status_items)
+def run_system2(
+    backend: SharePointBackend,
+    now: datetime,
+    max_status_items: int,
+    control_item_id: str = "",
+) -> dict[str, int]:
+    isolated_run = control_item_id.strip()
+    status_events = 0 if isolated_run else backend.process_status_events(now, max_status_items)
     service = AutomationService(backend, now)
     assigned = 0
     tracked = 0
     errors = 0
     records = backend.control_records()
+    if isolated_run:
+        records = [record for record in records if record.item_id == isolated_run]
+        if not records:
+            raise RuntimeError(
+                f"No existe el item {isolated_run} en Control_Gantt_Asignaciones."
+            )
+        print(f"System 2 isolated test: control item {isolated_run}")
     for record in records:
         if (
             normalized(record.state) in CLOSED_STATES
@@ -940,6 +980,11 @@ def main() -> int:
     parser.add_argument("--max-items", type=int, default=5)
     parser.add_argument("--max-status-items", type=int, default=20)
     parser.add_argument("--item-id", default="")
+    parser.add_argument(
+        "--control-item-id",
+        default="",
+        help="Limita Sistema 2 a un item de Control_Gantt_Asignaciones.",
+    )
     parser.add_argument("--skip-system1", action="store_true")
     parser.add_argument("--skip-schema", action="store_true")
     args = parser.parse_args()
@@ -960,7 +1005,12 @@ def main() -> int:
     print_token_diagnostics(token)
     site = resolve_site(token, settings)
     backend = SharePointBackend(token, site, ensure_schema=not args.skip_schema)
-    summary = run_system2(backend, datetime.now(timezone.utc), max(1, args.max_status_items))
+    summary = run_system2(
+        backend,
+        datetime.now(timezone.utc),
+        max(1, args.max_status_items),
+        args.control_item_id.strip(),
+    )
     if system1_error:
         summary["system1_errors"] = 1
     print("Autosys automation dispatcher summary:")
