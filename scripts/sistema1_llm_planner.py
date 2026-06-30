@@ -33,9 +33,10 @@ Lectura de presupuesto:
 - Una fila puede estar en el presupuesto y aun asi quedar fuera del cronograma. No todo costo es actividad.
 - Conserva encabezados utiles como SECTION cuando ayudan a leer la secuencia; no conviertas todos los titulos en actividades.
 - Si una linea es subtotal, total, impuesto, utilidad, margen, descuento, precio total o resumen financiero, marcala TOTAL/NO_CRONOGRAMA.
-- Si una linea es insumo puro o material puro, marcala RESOURCE_ONLY/NO_CRONOGRAMA salvo que el texto describa una actividad ejecutable.
+- Si budget_structure es activity_based y una linea es insumo puro o material puro, marcala RESOURCE_ONLY/NO_CRONOGRAMA salvo que el texto describa una actividad ejecutable.
+- Si budget_structure es material_process, el presupuesto expresa procesos mediante nombres de materiales. En ese modo, Concreto, Acero, Formaleta, Material de produccion, Mano de obra y Transporte son hitos/procesos cronogramables y deben conservarse como filas separadas.
 - Si una linea es "ingeniero residente", "ingeniero residente obra", residente, supervision administrativa o personal de control sin accion ejecutable, dejala fuera como ADMIN_INDIRECT/NO_CRONOGRAMA.
-- MT produccion o material de produccion normalmente es material/recurso de fabrica; no lo conviertas en actividad salvo que la descripcion indique fabricacion/produccion ejecutable.
+- MT produccion o material de produccion normalmente es material/recurso de fabrica; en modo material_process conservalo como proceso de FABRICA.
 - MO, Mano de Obra, MO acero, MO concreto, MO instalacion, MO acabados u otras manos de obra pueden ser actividades cronogramables si describen trabajo ejecutable. La unidad m2, m3, kg, ml, hr o similar en MO suele ser base de cobro de los obreros; NO excluyas una MO solo por tener unidad de medicion. Clasifica por la accion: MO acero/concreto de produccion o fabricacion suele ser FABRICA; MO instalacion, vaciado, fundacion o montaje suele ser CAMPO; MO pintura/pasteo/acabados suele ser ACABADOS.
 - Si la unidad es mes, meses o mensual, conserva la fila en el cronograma. En presupuestos de obra suele representar permanencia, servicio o actividad sostenida en campo. Clasificala como CAMPO salvo que el texto demuestre claramente que es PRELIMINARES, FABRICA o ACABADOS.
 - La unidad m2/m3/kg nunca decide sola. Es evidencia de metrado/base de cobro, no prueba automatica de actividad. Si la descripcion es alquiler, costo, precio, material, subtotal, equipo o indirecto, NO_CRONOGRAMA aunque tenga m2/m3/kg.
@@ -47,7 +48,8 @@ Reglas:
 - El centro son las actividades cronogramables y los objetos fabricables, no los insumos ni los totales.
 - No inventes fechas, duraciones, responsables, dependencias, cantidades ni montos.
 - No inventes actividades que no esten trazadas en una fila fuente.
-- No conviertas automaticamente todos los materiales en actividades.
+- No conviertas automaticamente todos los materiales en actividades cuando budget_structure sea activity_based. En material_process conserva los procesos materiales reconocidos sin agregar otros.
+- En material_process no agrupes, resumas ni renombres Concreto, Acero, Formaleta, Material de produccion, Mano de obra o Transporte. actividad_normalizada debe conservar exactamente la descripcion recibida.
 - Si una linea describe un objeto fabricable o prefabricado, clasificala como FABRICA y registra el objeto en la lista objetos_fabricados_planta.
 - Si una linea habla de formaleta, formaletas, moldes o preparacion de moldes, usa FABRICA salvo que sea solo alquiler/costo sin actividad.
 - Si una linea habla de instalacion, montaje, descarga, transporte a obra o ejecucion en sitio de un objeto fabricado, usa CAMPO y relaciona el objeto si se puede identificar.
@@ -108,7 +110,8 @@ Reglas:
 - No uses m2/m3/kg/ml/hr como criterio unico para incluir o excluir. En MO puede ser base de pago; en materiales/costos puede ser solo metrado.
 - Si la unidad es mes, meses o mensual, include_in_cronograma debe ser true. Usa CAMPO por defecto porque normalmente corresponde a obra, permanencia o servicio mensual.
 - Si detectas MO ejecutable, incluyela y clasificala por accion: fabrica para produccion/acero/concreto en planta; campo para instalacion/fundacion/vaciado/montaje; acabados para pintura/pasteo/cielo raso.
-- Si detectas MT produccion/material de produccion sin accion ejecutable, dejalo fuera como RESOURCE_ONLY/NO_CRONOGRAMA.
+- Si detectas MT produccion/material de produccion sin accion ejecutable, dejalo fuera como RESOURCE_ONLY/NO_CRONOGRAMA en activity_based; incluyelo como FABRICA en material_process.
+- Si budget_structure es material_process, incluye por separado Concreto, Acero, Formaleta, Material de produccion y Mano de obra en FABRICA, y Transporte en CAMPO. No los combines ni simplifiques.
 - Si detectas alquiler de grua/equipo sin accion de izaje/montaje/descarga, dejalo fuera como ADMIN_INDIRECT o RESOURCE_ONLY.
 - Si detectas ingeniero residente obra, supervision administrativa o personal indirecto sin actividad ejecutable, dejalo fuera del cronograma.
 - Si detectas planos/programacion de barriada o tipos de casa normal/espejo, ordenalos temprano en PRELIMINARES.
@@ -223,6 +226,7 @@ def request_llm_plan(
     candidates: list[dict[str, Any]],
     model: str | None = None,
     chunk_size: int = 18,
+    budget_structure: str = "activity_based",
 ) -> LlmPlanResult:
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
@@ -244,6 +248,7 @@ def request_llm_plan(
             "header_row": header_row,
             "planning_buckets": PLANNING_BUCKETS,
             "line_types": LINE_TYPES,
+            "budget_structure": budget_structure,
             "batch_index": batch_index,
             "batch_count": len(batches),
             "candidates": batch,

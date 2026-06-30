@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from hashlib import sha1
 from pathlib import Path
@@ -118,6 +118,76 @@ def normalize_text(value: Any) -> str:
     for source, target in replacements.items():
         text = text.replace(source, target)
     return re.sub(r"\s+", " ", text)
+
+
+def material_process_kind(description: str) -> str:
+    text = normalize_text(description)
+    if "mano de obra" in text or re.search(r"\bmo\b", text):
+        return "mano_obra"
+    if "material de produccion" in text or "materal de produccion" in text:
+        return "material_produccion"
+    if "formaleta" in text or "molde" in text:
+        return "formaleta"
+    if text == "concreto" or text.startswith("concreto "):
+        return "concreto"
+    if text == "acero" or text.startswith("acero "):
+        return "acero"
+    if text == "transporte" or text.startswith("transporte "):
+        return "transporte"
+    return ""
+
+
+def detect_material_process_budget(rows: list[BudgetRow]) -> bool:
+    kinds = {material_process_kind(row.description) for row in rows}
+    kinds.discard("")
+    return len(kinds) >= 3 and bool(kinds.intersection({"formaleta", "mano_obra"}))
+
+
+def material_process_bucket(kind: str) -> str:
+    return "CAMPO" if kind == "transporte" else "FABRICA"
+
+
+def enforce_material_process_rows(
+    planned_rows: list[BudgetRow],
+    source_rows: list[BudgetRow],
+) -> tuple[list[BudgetRow], list[str]]:
+    source_by_row = {row.source_row: row for row in source_rows}
+    protected = {
+        row.source_row: material_process_kind(row.description)
+        for row in source_rows
+        if material_process_kind(row.description)
+    }
+    if not protected:
+        return planned_rows, []
+
+    preserved = 0
+    result: list[BudgetRow] = []
+    for planned in planned_rows:
+        kind = protected.get(planned.source_row)
+        source = source_by_row.get(planned.source_row)
+        if not kind or not source:
+            result.append(planned)
+            continue
+        preserved += 1
+        result.append(
+            replace(
+                planned,
+                line_type=material_process_bucket(kind),
+                description=source.description,
+                quantity=source.quantity,
+                unit=source.unit,
+                requires_review=source.requires_review,
+                review_reason=(
+                    source.review_reason
+                    if source.requires_review
+                    else "Proceso preservado por estructura de presupuesto basada en materiales."
+                ),
+            )
+        )
+    return result, [
+        "Estructura detectada: presupuesto por procesos/materiales.",
+        f"Procesos de materiales preservados en el Gantt: {preserved}.",
+    ]
 
 
 def display_text(value: Any, max_len: int = 200) -> str:
@@ -373,6 +443,8 @@ def classify_row(description: str, item: Any, quantity: Any, unit: Any, amount: 
         return "NO_CRONOGRAMA_PROBABLE", True, "Ingeniero residente obra es control/administracion, no actividad cronogramable."
     if not text and has_amount:
         return "AMBIGUO", True, "Tiene monto pero no descripcion clara."
+    if re.match(r"^(costo|precio)\s*/", text):
+        return "NO_CRONOGRAMA_PROBABLE", False, "Resumen de costo o precio unitario, no proceso cronogramable."
     if any(term in row_text for term in TOTAL_TERMS):
         return "NO_CRONOGRAMA_PROBABLE", True, "Subtotal, total, impuesto, margen, precio o resumen financiero."
     if any(term in row_text for term in INDIRECT_TERMS) and not any(term in row_text for term in ("instalacion", "montaje", "construccion")):
@@ -525,6 +597,7 @@ def apply_llm_plan(
     sheet_name: str,
     header_row: int,
     options: LlmOptions,
+    budget_structure: str = "activity_based",
 ) -> tuple[list[BudgetRow], list[str]]:
     if not options.enabled:
         return rows, ["LLM actividad/cronograma: desactivado; se uso clasificacion local."]
@@ -539,6 +612,7 @@ def apply_llm_plan(
             header_row=header_row,
             candidates=candidates,
             model=options.model or None,
+            budget_structure=budget_structure,
         )
     except Exception as exc:
         return rows, [f"LLM actividad/cronograma fallo; se uso clasificacion local. Error: {exc}"]
@@ -920,14 +994,20 @@ def build_gantt_workbook(
     finally:
         source_wb.close()
 
+    source_rows = rows
+    material_process_mode = detect_material_process_budget(source_rows)
     rows, llm_notes = apply_llm_plan(
         rows,
         workbook_name=source_file_name,
         sheet_name=selected_sheet,
         header_row=header_row,
         options=llm_options or LlmOptions(enabled=False),
+        budget_structure="material_process" if material_process_mode else "activity_based",
     )
     notes.extend(llm_notes)
+    if material_process_mode:
+        rows, material_notes = enforce_material_process_rows(rows, source_rows)
+        notes.extend(material_notes)
     rows, filter_notes = filter_cronogram_rows(rows)
     notes.extend(filter_notes)
 
