@@ -517,9 +517,9 @@ class SharePointBackend:
 
     def _ensure_columns(self, target_list: dict[str, Any], definitions: dict[str, dict[str, Any]]) -> None:
         existing = build_field_map(list_columns(self.token, self.site_id, target_list["id"]))
-        for name, column_type in definitions.items():
-            if pick_field(existing, (name,)):
-                continue
+        missing = [name for name in definitions if not pick_field(existing, (name,))]
+        for index, name in enumerate(missing):
+            column_type = definitions[name]
             try:
                 graph_post(
                     self.token,
@@ -531,11 +531,11 @@ class SharePointBackend:
                 if "403" not in str(exc) and "accessDenied" not in str(exc):
                     raise
                 print(
-                    "WARNING: no se pudo crear la columna "
-                    f"{target_list['displayName']}.{name}. "
-                    "Para ampliar listas existentes, conceder Sites.Manage.All "
-                    "o crear la columna manualmente."
+                    "WARNING: no se pudieron crear columnas en "
+                    f"{target_list['displayName']}. Faltan: {', '.join(missing[index:])}. "
+                    "Conceder Sites.Manage.All o crearlas manualmente."
                 )
+                break
 
     def _resolve_or_create_notification_list(self, ensure_schema: bool) -> dict[str, Any]:
         created = False
@@ -544,18 +544,27 @@ class SharePointBackend:
         except RuntimeError:
             if not ensure_schema:
                 raise
-            target = graph_post(
-                self.token,
-                f"{GRAPH_BASE}/sites/{self.site_id}/lists",
-                {
-                    "displayName": NOTIFICATION_LIST_NAME,
-                    "columns": [
-                        {"name": name, "displayName": name, **column_type}
-                        for name, column_type in NOTIFICATION_COLUMNS.items()
-                    ],
-                    "list": {"template": "genericList"},
-                },
-            )
+            try:
+                target = graph_post(
+                    self.token,
+                    f"{GRAPH_BASE}/sites/{self.site_id}/lists",
+                    {
+                        "displayName": NOTIFICATION_LIST_NAME,
+                        "columns": [
+                            {"name": name, "displayName": name, **column_type}
+                            for name, column_type in NOTIFICATION_COLUMNS.items()
+                        ],
+                        "list": {"template": "genericList"},
+                    },
+                )
+            except RuntimeError as exc:
+                if "403" not in str(exc) and "accessDenied" not in str(exc):
+                    raise
+                raise RuntimeError(
+                    f"No existe {NOTIFICATION_LIST_NAME} y Microsoft Graph no tiene permiso "
+                    "para crearla. Crear la lista según docs/power_automate_tracking_flows.md "
+                    "o conceder Sites.Manage.All con consentimiento de administrador."
+                ) from exc
             created = True
             print(f"Created SharePoint list {NOTIFICATION_LIST_NAME}")
         if ensure_schema and not created:

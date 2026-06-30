@@ -14,6 +14,15 @@ El dispatcher puede crear la lista y estas columnas en una sola operación. Si
 la lista ya existe pero le faltan columnas, agregarlas manualmente o conceder
 `Sites.Manage.All` a la aplicación de Entra:
 
+Ruta para el permiso: **Microsoft Entra admin center > App registrations >
+aplicación de Autosys > API permissions > Add a permission > Microsoft Graph >
+Application permissions > Sites.Manage.All > Grant admin consent**. No requiere
+un conector premium de Power Automate.
+
+Alternativa sin ampliar el permiso de la app: en SharePoint, **Site contents >
+New > List > Blank list**, crear `Cola_Notificaciones_Gantt` y luego agregar las
+columnas de la tabla siguiente.
+
 | Columna | Tipo |
 |---|---|
 | `Title` | Texto |
