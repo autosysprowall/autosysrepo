@@ -26,6 +26,16 @@ on:
         required: false
         type: boolean
         default: false
+      skip_system2:
+        description: "Ejecutar solo Sistema 1, sin permisos, correos ni tracking"
+        required: false
+        type: boolean
+        default: false
+      reset_system1_data:
+        description: "Vaciar cola y Proyectos Activos, y reencolar presupuestos oficiales"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -77,6 +87,25 @@ jobs:
           fi
           echo "Required secrets are configured."
 
+      - name: Reset Sistema 1 data and requeue official budgets
+        if: github.event_name == 'workflow_dispatch' && inputs.reset_system1_data
+        env:
+          MS_GRAPH_TENANT_ID: ${{ secrets.MS_TENANT_ID }}
+          MS_GRAPH_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
+          MS_GRAPH_CLIENT_SECRET: ${{ secrets.MS_CLIENT_SECRET || secrets.MS_GRAPH_CLIENT_SECRET }}
+          SP_SITE_HOSTNAME: ${{ vars.SP_SITE_HOSTNAME || 'sciprowall.sharepoint.com' }}
+          SP_SITE_PATH: ${{ vars.SP_SITE_PATH || '/sites/PROYECTOSPROWALL' }}
+          SP_QUEUE_LIST_NAME: ${{ vars.SP_QUEUE_LIST_NAME || 'Cola_Automatizacion_Proyectos' }}
+          SP_QUEUE_LIST_ID: ${{ vars.SP_QUEUE_LIST_ID }}
+          SP_CONTROL_LIST_NAME: ${{ vars.SP_CONTROL_LIST_NAME || 'Control_Gantt_Asignaciones' }}
+          SP_CONTROL_LIST_ID: ${{ vars.SP_CONTROL_LIST_ID }}
+          SP_ACTIVE_PROJECTS_ROOT: Proyectos/Proyectos Activos
+          SP_APPROVED_BUDGETS_ROOT: Proyectos/Presupuestos Aprobados
+        run: |
+          python scripts/sistema1_reset_and_requeue.py \
+            --execute \
+            --confirm-active-root "Proyectos/Proyectos Activos"
+
       - name: Run SharePoint automation dispatcher
         env:
           MS_GRAPH_TENANT_ID: ${{ secrets.MS_TENANT_ID }}
@@ -103,5 +132,8 @@ jobs:
           )
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.skip_system1 }}" = "true" ]; then
             args+=(--skip-system1)
+          fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.skip_system2 }}" = "true" ]; then
+            args+=(--skip-system2)
           fi
           python src/automation_dispatcher.py "${args[@]}"

@@ -986,6 +986,11 @@ def main() -> int:
         help="Limita Sistema 2 a un item de Control_Gantt_Asignaciones.",
     )
     parser.add_argument("--skip-system1", action="store_true")
+    parser.add_argument(
+        "--skip-system2",
+        action="store_true",
+        help="Ejecuta solo Sistema 1; no comparte archivos, encola correos ni procesa tracking.",
+    )
     parser.add_argument("--skip-schema", action="store_true")
     args = parser.parse_args()
 
@@ -999,6 +1004,10 @@ def main() -> int:
                 "Sistema 1 terminó con error; Sistema 2 continuará para no bloquear "
                 f"asignaciones y tracking: {system1_error}"
             )
+
+    if args.skip_system2:
+        print("Sistema 2 omitido: no se procesaron asignaciones, correos, permisos ni tracking.")
+        return 1 if system1_error else 0
 
     settings = load_settings()
     token = acquire_token(settings)
