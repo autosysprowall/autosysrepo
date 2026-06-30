@@ -53,6 +53,10 @@ Cuando existe un CC independiente:
 Si el presupuesto no tiene una columna CC independiente, `CC` se omite. No se
 usa la misma columna de descripción como CC y no se inventan códigos.
 
+Cuando existe una columna `Ítem`, se agrega antes de `Actividad`. `Ítem` se
+valida por contenido jerárquico (`1.1`, `1.1.1`, `2.3.4`); una columna de ítems
+no puede sustituir la descripción textual de la actividad.
+
 `Fecha de Inicio`, `Fecha de Fin` y `Estatus` quedan vacíos por actividad. El
 ingeniero completa las fechas y las reglas condicionales pintan la barra en el
 calendario.
@@ -82,7 +86,8 @@ Aliases principales:
 
 | Campo | Ejemplos |
 |---|---|
-| Actividad | actividad, descripción, concepto, detalle, tarea, partida, rubro, item |
+| Ítem | ítem, ítems, partida; contenido como 1.1 o 1.1.1 |
+| Actividad | actividad, material, descripción, concepto, detalle, tarea, rubro |
 | CC | cc, centro de costo, código, capítulo, familia, id partida |
 | Unidad | unidad, und, unid, u/m, um, medida |
 | Cantidad | cantidad, cant, qty, q, volumen |
@@ -93,6 +98,17 @@ Si faltan columnas y el modo OpenAI está `live`, se puede solicitar un mapping
 limitado al LLM. La respuesta solo puede referirse a índices de columnas
 existentes. Un índice inválido, duplicado o sin encabezado se descarta. El LLM
 no escribe el Excel.
+
+En presupuestos complejos con `Ítem` o más de dos columnas financieras, la LLM
+también valida el mapping determinístico usando muestras reales:
+
+- códigos jerárquicos para `Ítem`;
+- descripciones con texto para `Actividad`;
+- unidades como `m2`, `m3`, `kg`, `ud` o `global`;
+- valores numéricos para cantidades y costos.
+
+La LLM no puede reemplazar un mapping determinístico que ya pasó estas
+validaciones de contenido.
 
 También se detectan encabezados repetidos dentro de una misma hoja. Cada bloque
 puede cambiar el orden de columnas sin desplazar Unidad, Cantidad o Costos.
@@ -119,12 +135,14 @@ ubicadas debajo del presupuesto.
       "row_number": 0,
       "row_type": "activity",
       "level": 0,
+      "item": "",
       "actividad": "",
       "cc": "",
       "unidad": "",
       "cantidad": null,
       "costo_unitario": null,
       "costo_total": null,
+      "extra_costs": {},
       "source_cells": {},
       "raw_values": {},
       "warnings": []
@@ -172,6 +190,26 @@ de caja, análisis comercial, comparación de presupuestos y reportes.
 
 Esto evita columnas vacías en SharePoint/Excel Online y mantiene el vínculo
 únicamente para presupuestos que no ofrecen otra representación del valor.
+
+### Varios bloques financieros
+
+No se reduce el presupuesto a una única pareja de costos. Se conservan, en su
+orden original, las columnas reconocidas como:
+
+- costo unitario y costo total;
+- precio unitario y precio total;
+- utilidad total;
+- margen.
+
+Los encabezados combinados ubicados encima de la tabla se copian como grupos en
+la fila superior del Gantt. Por ejemplo:
+
+- `PRESUPUESTO GENERAL (1 CASA)`;
+- `GLOBAL (2 CASAS)`;
+- `ACUMULADO (2 CASAS)`.
+
+Así, columnas repetidas como `Costo Total (2 casas)` permanecen separadas bajo
+su grupo correspondiente.
 
 ## Calendario
 
@@ -268,6 +306,8 @@ actualiza el evento a `RequiereRevision`.
 - duración en semanas y prioridad de Fecha Final;
 - fórmulas sin caché enlazadas solo como fallback;
 - prioridad de `C. Unitario`/`C. Total` frente a columnas de precio;
+- validación de `Ítem` frente a `Material` mediante encabezados y contenido;
+- múltiples bloques de costo/precio/utilidad/margen con encabezados agrupados;
 - límite de tabla para excluir bloques auxiliares posteriores;
 - formato, colores originales, alturas, separadores, validaciones, barras y
   secciones combinadas;

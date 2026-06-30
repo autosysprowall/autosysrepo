@@ -19,8 +19,10 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 
 from budget_extraction import (
+    BudgetCostColumn,
     BudgetExtractionError,
     BudgetExtractionResult,
+    detect_header_candidate,
     extract_budget_structure,
 )
 from sistema1_llm_planner import request_llm_column_mapping, request_llm_plan
@@ -1091,12 +1093,50 @@ GANTT_FIXED_HEADERS = [
 ]
 
 
-def gantt_headers(has_cc: bool) -> list[str]:
+def additional_cost_columns(
+    extraction: BudgetExtractionResult,
+) -> list[BudgetCostColumn]:
+    primary = {
+        int(column)
+        for field_name in ("costo_unitario", "costo_total")
+        if (column := extraction.column_mapping.get(field_name))
+    }
     return [
+        column
+        for column in extraction.cost_columns
+        if column.column not in primary
+    ]
+
+
+def gantt_cost_groups(extraction: BudgetExtractionResult) -> dict[str, str]:
+    groups: dict[str, str] = {}
+    for column in extraction.cost_columns:
+        if column.column == extraction.column_mapping.get("costo_unitario"):
+            groups["Costo Unitario"] = column.group
+        elif column.column == extraction.column_mapping.get("costo_total"):
+            groups["Costo Total"] = column.group
+        else:
+            groups[column.output_header] = column.group
+    return groups
+
+
+def gantt_headers(
+    has_cc: bool,
+    has_item: bool = False,
+    extra_cost_columns: list[BudgetCostColumn] | None = None,
+) -> list[str]:
+    headers = [
         header
         for header in GANTT_FIXED_HEADERS
         if has_cc or header != "CC"
     ]
+    if has_item:
+        headers.insert(0, "Ítem")
+    headers.extend(
+        column.output_header
+        for column in (extra_cost_columns or [])
+    )
+    return headers
 
 
 def _reset_controlled_gantt_sheet(ws) -> None:
@@ -1240,6 +1280,11 @@ def _write_gantt_rows(
     calendar_end_column: int,
 ) -> tuple[list[int], int]:
     indexes = _base_column_indexes(headers)
+    extra_costs = additional_cost_columns(extraction)
+    extra_cost_by_header = {
+        column.output_header: column
+        for column in extra_costs
+    }
     border = Border(
         left=Side(style="thin", color="B7C9D8"),
         right=Side(style="thin", color="B7C9D8"),
@@ -1295,6 +1340,7 @@ def _write_gantt_rows(
 
         activity_rows.append(output_row)
         values = {
+            "Ítem": source_row.item,
             "Actividad": source_row.actividad,
             "CC": source_row.cc,
             "Fecha de Inicio": None,
@@ -1305,6 +1351,12 @@ def _write_gantt_rows(
             "Costo Unitario": source_row.costo_unitario,
             "Costo Total": source_row.costo_total,
         }
+        values.update(
+            {
+                column.output_header: source_row.extra_costs.get(column.key)
+                for column in extra_costs
+            }
+        )
         if (
             values["Costo Total"] is None
             and values["Cantidad"] is not None
@@ -1329,6 +1381,7 @@ def _write_gantt_rows(
                 indent=source_row.level if header == "Actividad" else 0,
             )
             field_name = {
+                "Ítem": "item",
                 "Actividad": "actividad",
                 "CC": "cc",
                 "Unidad": "unidad",
@@ -1336,6 +1389,8 @@ def _write_gantt_rows(
                 "Costo Unitario": "costo_unitario",
                 "Costo Total": "costo_total",
             }.get(header)
+            if header in extra_cost_by_header:
+                field_name = extra_cost_by_header[header].key
             source_cell = (
                 _source_cell_for_field(source_ws, source_row, field_name)
                 if field_name
@@ -1345,7 +1400,8 @@ def _write_gantt_rows(
                 cell,
                 source_cell,
                 copy_number_format=header
-                in {"Cantidad", "Costo Unitario", "Costo Total"},
+                in {"Cantidad", "Costo Unitario", "Costo Total"}
+                or header in extra_cost_by_header,
             )
         for header in ("Fecha de Inicio", "Fecha de Fin"):
             ws.cell(output_row, indexes[header]).number_format = "dd/mm/yyyy"
@@ -1357,6 +1413,15 @@ def _write_gantt_rows(
             if cost_cell.number_format == "General":
                 cost_cell.number_format = (
                     '[$B/.-180A] #,##0.00;[Red]-[$B/.-180A] #,##0.00'
+                )
+        for header in extra_cost_by_header:
+            cost_cell = ws.cell(output_row, indexes[header])
+            if cost_cell.number_format == "General":
+                role = extra_cost_by_header[header].role
+                cost_cell.number_format = (
+                    "0.00%"
+                    if role == "margen"
+                    else '[$B/.-180A] #,##0.00;[Red]-[$B/.-180A] #,##0.00'
                 )
 
         calendar_border = Side(style="thin", color="E3E8EF")
@@ -1449,6 +1514,7 @@ def _style_gantt_sheet(
     identity: ProjectIdentity,
     source_file_name: str,
     headers: list[str],
+    cost_groups: dict[str, str],
     calendar_end_column: int,
     data_end_row: int,
 ) -> None:
@@ -1465,6 +1531,7 @@ def _style_gantt_sheet(
         "Cantidad": 14,
         "Costo Unitario": 17,
         "Costo Total": 17,
+        "Ítem": 14,
     }
     header_fill = PatternFill("solid", fgColor="1F3864")
     border = Border(
@@ -1474,7 +1541,7 @@ def _style_gantt_sheet(
         bottom=Side(style="thin", color="B7C9D8"),
     )
     for column, header in enumerate(headers, start=1):
-        ws.column_dimensions[get_column_letter(column)].width = widths[header]
+        ws.column_dimensions[get_column_letter(column)].width = widths.get(header, 18)
         cell = ws.cell(HEADER_ROW, column, header)
         cell.fill = header_fill
         cell.font = Font(bold=True, color="FFFFFF")
@@ -1483,6 +1550,40 @@ def _style_gantt_sheet(
         subheader = ws.cell(WEEKDAY_ROW, column)
         subheader.fill = PatternFill("solid", fgColor="EAF2F8")
         subheader.border = border
+
+    grouped_columns = [
+        (column, cost_groups.get(header, ""))
+        for column, header in enumerate(headers, start=1)
+        if cost_groups.get(header, "")
+    ]
+    group_fill = PatternFill("solid", fgColor="244B6B")
+    index = 0
+    while index < len(grouped_columns):
+        start_column, label = grouped_columns[index]
+        end_column = start_column
+        index += 1
+        while (
+            index < len(grouped_columns)
+            and grouped_columns[index][1] == label
+            and grouped_columns[index][0] == end_column + 1
+        ):
+            end_column = grouped_columns[index][0]
+            index += 1
+        if end_column > start_column:
+            ws.merge_cells(
+                start_row=HEADER_ROW - 1,
+                start_column=start_column,
+                end_row=HEADER_ROW - 1,
+                end_column=end_column,
+            )
+        group_cell = ws.cell(HEADER_ROW - 1, start_column, label)
+        group_cell.fill = group_fill
+        group_cell.font = Font(bold=True, color="FFFFFF", size=9)
+        group_cell.alignment = Alignment(
+            horizontal="center",
+            vertical="center",
+            wrap_text=True,
+        )
 
     title_rows = (
         (1, "AUTOSYS - GANTT WORKING", 15, True),
@@ -1573,6 +1674,7 @@ def _assessment_sheet(
             "Filas separadoras",
             sum(1 for row in extraction.rows if row.row_type == "spacer"),
         ),
+        ("Columnas financieras preservadas", len(extraction.cost_columns)),
         ("Columnas faltantes", ", ".join(assessment.missing_columns) or "Ninguna"),
         ("LLM usado para mapping", "Sí" if assessment.llm_mapping_used else "No"),
         (
@@ -1594,6 +1696,27 @@ def _assessment_sheet(
                 details.get("header"),
                 assessment.aliases_used.get(field_name, ""),
                 details.get("score"),
+            ]
+        )
+
+    ws.append([])
+    ws.append(
+        [
+            "Columna financiera",
+            "Índice fuente",
+            "Grupo",
+            "Rol",
+            "Encabezado Gantt",
+        ]
+    )
+    for column in extraction.cost_columns:
+        ws.append(
+            [
+                column.header,
+                column.column,
+                column.group,
+                column.role,
+                column.output_header,
             ]
         )
 
@@ -1646,7 +1769,11 @@ def validate_generated_gantt(
         if "Gantt" not in wb.sheetnames:
             raise GanttReviewRequiredError("El archivo generado no contiene la hoja Gantt.")
         ws = wb["Gantt"]
-        expected_headers = gantt_headers(has_cc)
+        expected_headers = gantt_headers(
+            has_cc,
+            bool(extraction.column_mapping.get("item")),
+            additional_cost_columns(extraction),
+        )
         actual_headers = [
             display_text(ws.cell(HEADER_ROW, column).value, 80)
             for column in range(1, len(expected_headers) + 1)
@@ -1732,6 +1859,18 @@ def build_gantt_workbook(
     try:
         selected_sheet = select_budget_sheet(value_wb)
         source_ws = value_wb[selected_sheet]
+        header_candidate = detect_header_candidate(source_ws)
+        samples_by_column = {
+            column: [
+                source_ws.cell(row_number, column).value
+                for row_number in range(
+                    header_candidate.row_number + 1,
+                    min(source_ws.max_row, header_candidate.row_number + 40) + 1,
+                )
+                if display_text(source_ws.cell(row_number, column).value)
+            ][:8]
+            for column in range(1, source_ws.max_column + 1)
+        }
 
         def llm_mapper(
             sheet_name: str,
@@ -1749,6 +1888,7 @@ def build_gantt_workbook(
                     sheet_name=sheet_name,
                     headers=headers,
                     missing_fields=missing_fields,
+                    samples_by_column=samples_by_column,
                     model=options.model or None,
                 )
                 mapping_notes.append(
@@ -1781,7 +1921,10 @@ def build_gantt_workbook(
     )
     identity = derive_project_identity(source_file_name)
     has_cc = bool(extraction.column_mapping.get("cc"))
-    headers = gantt_headers(has_cc)
+    has_item = bool(extraction.column_mapping.get("item"))
+    extra_costs = additional_cost_columns(extraction)
+    headers = gantt_headers(has_cc, has_item, extra_costs)
+    cost_groups = gantt_cost_groups(extraction)
 
     wb = load_workbook(input_path, data_only=False, read_only=False, keep_links=True)
     try:
@@ -1807,6 +1950,7 @@ def build_gantt_workbook(
             identity,
             source_file_name,
             headers,
+            cost_groups,
             calendar_end_column,
             data_end_row,
         )

@@ -19,6 +19,10 @@ Reglas estrictas:
 - No inventes columnas ni valores.
 - Devuelve null cuando no exista evidencia suficiente.
 - Una columna no puede representar dos campos.
+- "item" contiene códigos jerárquicos como 1.1, 1.1.1 o 2.3.4; no es la actividad.
+- "actividad" contiene descripciones textuales como Muro prefabricado, Concreto o Mano de obra.
+- "unidad" contiene medidas como m2, m3, kg, ud o global.
+- Usa las muestras de contenido para validar el significado del encabezado.
 - No cambies ni resumas contenido del presupuesto.
 - Devuelve solo JSON válido con el objeto "mapping".
 """.strip()
@@ -300,6 +304,7 @@ def request_llm_column_mapping(
     sheet_name: str,
     headers: list[Any],
     missing_fields: tuple[str, ...],
+    samples_by_column: dict[int, list[Any]] | None = None,
     model: str | None = None,
 ) -> dict[str, int | None]:
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
@@ -320,6 +325,7 @@ def request_llm_column_mapping(
         "sheet_name": sheet_name,
         "missing_fields": list(missing_fields),
         "allowed_fields": [
+            "item",
             "actividad",
             "cc",
             "unidad",
@@ -328,9 +334,18 @@ def request_llm_column_mapping(
             "costo_total",
         ],
         "headers": indexed_headers,
+        "content_samples": {
+            str(column): [
+                str(value or "").strip()
+                for value in values[:8]
+                if str(value or "").strip()
+            ]
+            for column, values in (samples_by_column or {}).items()
+        },
         "response_example": {
             "mapping": {
-                "actividad": 3,
+                "item": 3,
+                "actividad": 4,
                 "cc": None,
                 "unidad": 5,
             }

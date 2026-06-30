@@ -224,6 +224,156 @@ class BudgetExtractionTests(unittest.TestCase):
                 source_sheet=ws.title,
             )
 
+    def test_item_material_and_multiple_financial_groups_use_content_validation(self) -> None:
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Presupuesto FLEXIO"
+        ws["C17"] = "PRESUPUESTO GENERAL (1 CASA)"
+        ws.merge_cells("C17:I18")
+        ws["J17"] = "GLOBAL (2 CASAS)"
+        ws.merge_cells("J17:M18")
+        ws["N17"] = "ACUMULADO (2 CASAS)"
+        ws.merge_cells("N17:Q18")
+        headers = [
+            "PROWALL",
+            "CC",
+            "Ítems",
+            "Material",
+            "Cantidad",
+            "Unidad",
+            "Costo unitario",
+            "Costo total (1 casa)",
+            "Precio Unitario (1 casa)",
+            "Costo Total (2 casas)",
+            "Precio Total (2 casas)",
+            "Utilidad Total",
+            "Margen",
+            "Costo Total (2 casas)",
+            "Precio Total (2 casas)",
+            "Utilidad Total",
+            "Margen",
+        ]
+        for column, value in enumerate(headers, start=1):
+            ws.cell(19, column, value)
+        ws.append([])
+        ws["J20"] = 100
+        rows = [
+            [
+                "PROWALL/CAMPO",
+                None,
+                1.1,
+                "Vaciado de Piso de Fundación",
+                None,
+                None,
+                None,
+                3245.73,
+                3836.56,
+                6491.46,
+                7673.12,
+                1181.66,
+                0.154,
+                7756.46,
+                9168.39,
+                1411.93,
+                0.154,
+            ],
+            [
+                "PROWALL/CAMPO",
+                "CC.03.03.01.02",
+                "1.1.1",
+                "Concreto de 3000 psi",
+                10,
+                "m3",
+                120,
+                1200,
+                None,
+                2400,
+                2836.88,
+                436.88,
+                0.154,
+                2841.6,
+                3358.87,
+                517.27,
+                0.154,
+            ],
+        ]
+        for row_number, values in enumerate(rows, start=21):
+            for column, value in enumerate(values, start=1):
+                ws.cell(row_number, column, value)
+        ws.auto_filter.ref = "A19:A22"
+        calls: list[tuple[str, ...]] = []
+
+        def mapper(sheet_name, candidate_headers, requested_fields):
+            calls.append(requested_fields)
+            return {"item": 4, "actividad": 3}
+
+        result = extract_budget_structure(
+            ws,
+            source_file="multi-cost.xlsx",
+            source_sheet=ws.title,
+            column_mapper=mapper,
+        )
+        self.assertTrue(calls)
+        self.assertEqual(3, result.column_mapping["item"])
+        self.assertEqual(4, result.column_mapping["actividad"])
+        self.assertEqual("1.1.1", str(result.rows[1].item))
+        self.assertEqual("Concreto de 3000 psi", result.rows[1].actividad)
+        self.assertEqual(11, len(result.cost_columns))
+        self.assertEqual(
+            ["PRESUPUESTO GENERAL (1 CASA)", "GLOBAL (2 CASAS)", "ACUMULADO (2 CASAS)"],
+            list(dict.fromkeys(column.group for column in result.cost_columns)),
+        )
+        self.assertEqual("complex_validation", result.assessment.llm_validation["mode"])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "2025-111 - Multi costo.xlsx"
+            output = root / "2025-111_gantt_WORKING.xlsx"
+            add_datos(wb)
+            wb.save(source)
+            build_gantt_workbook(
+                source,
+                output,
+                source.name,
+                LlmOptions(enabled=False),
+            )
+            generated = load_workbook(output, data_only=False)
+            try:
+                gantt = generated["Gantt"]
+                self.assertEqual("Ítem", gantt.cell(HEADER_ROW, 1).value)
+                self.assertEqual("Actividad", gantt.cell(HEADER_ROW, 2).value)
+                self.assertEqual(1.1, gantt.cell(DATA_START_ROW, 1).value)
+                self.assertEqual(
+                    "Vaciado de Piso de Fundación",
+                    gantt.cell(DATA_START_ROW, 2).value,
+                )
+                group_labels = {
+                    gantt.cell(HEADER_ROW - 1, column).value
+                    for column in range(1, gantt.max_column + 1)
+                    if isinstance(gantt.cell(HEADER_ROW - 1, column).value, str)
+                }
+                self.assertIn("GLOBAL (2 CASAS)", group_labels)
+                self.assertIn("ACUMULADO (2 CASAS)", group_labels)
+                header_indexes = {
+                    gantt.cell(HEADER_ROW, column).value: column
+                    for column in range(1, gantt.max_column + 1)
+                    if isinstance(gantt.cell(HEADER_ROW, column).value, str)
+                }
+                global_cost_header = next(
+                    header
+                    for header in header_indexes
+                    if "Costo Total (2 casas)" in header
+                    and "GLOBAL (2 CASAS)" in header
+                )
+                self.assertEqual(
+                    6491.46,
+                    gantt.cell(
+                        DATA_START_ROW,
+                        header_indexes[global_cost_header],
+                    ).value,
+                )
+            finally:
+                generated.close()
+
 
 class GanttWorkbookTests(unittest.TestCase):
     def test_project_calendar_understands_duration_units_and_prioritizes_end(self) -> None:
@@ -487,7 +637,11 @@ class GanttWorkbookTests(unittest.TestCase):
                     for row in range(DATA_START_ROW, gantt.max_row + 1)
                 ]
                 self.assertNotIn("PROYECTO", activities)
-                calendar_column = len(headers) + 1
+                calendar_column = next(
+                    column
+                    for column in range(1, gantt.max_column + 1)
+                    if isinstance(gantt.cell(HEADER_ROW, column).value, date)
+                )
                 self.assertEqual(
                     "00D0D0D0",
                     gantt.cell(DATA_START_ROW, calendar_column).fill.fgColor.rgb,
