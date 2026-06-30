@@ -4,9 +4,14 @@ Estos flujos usan únicamente SharePoint y Office 365 Outlook, conectores
 estándar. No usan HTTP premium, no llaman GitHub y no procesan
 `Proyectos Terminados`.
 
-No se generó un paquete importable porque este entorno no tiene una conexión
-autenticada a Power Platform. Los pasos siguientes son la definición exacta
-para construirlos en la interfaz de Power Automate.
+Estado al 30 de junio de 2026:
+
+- `Cola_Notificaciones_Gantt` y sus columnas ya existen en SharePoint.
+- `PA_S2_EnviarNotificacionesGantt` está creado, activo y validado en modo de
+  prueba.
+- `PA_S2_GanttWorkingModificado_A_Cola` todavía está pendiente de crear.
+- El Switch que confirma flags en `Control_Gantt_Asignaciones` y el Scope de
+  fallo todavía están pendientes antes de activar destinatarios reales.
 
 ## Lista `Cola_Notificaciones_Gantt`
 
@@ -41,6 +46,25 @@ columnas de la tabla siguiente.
 | `Notas` | Texto multilínea |
 
 ## Flujo 1: `PA_S2_EnviarNotificacionesGantt`
+
+### Configuración activa de prueba
+
+El flujo activo usa el trigger **When an item is created or modified** sobre
+`Cola_Notificaciones_Gantt`, concurrencia `1` y esta condición de trigger:
+
+```text
+@equals(triggerBody()?['EstadoNotificacion'],'Pendiente')
+```
+
+Durante la validación, **Send an email (V2)** tiene `To` fijado a
+`auto.sys@prowallpanama.com`. El asunto y el cuerpo provienen del item. Después
+del envío exitoso, **Update item** preserva los campos, establece
+`EstadoNotificacion = Enviado` y `FechaEnvio = utcNow()`.
+
+La prueba controlada del 30 de junio terminó `Succeeded`: envío en 0.9 segundos
+y actualización del item en 0.7 segundos. No se usaron destinatarios reales.
+No sustituir el destinatario fijo por `To` hasta obtener aprobación del
+supervisor y terminar el Switch y el manejo de fallos descritos abajo.
 
 1. Crear un **Automated cloud flow**.
 2. Trigger: SharePoint, **When an item is created or modified**.

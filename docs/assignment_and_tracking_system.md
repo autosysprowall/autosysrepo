@@ -125,6 +125,10 @@ auditoría. La configuración inicial usa `auto.sys@prowallpanama.com`.
 No cambiar `NOTIFICATION_DELIVERY_MODE` a `live` hasta la aprobación del
 supervisor.
 
+Además de la redirección en Python, el flujo activo de Power Automate mantiene
+su campo `To` fijado a `auto.sys@prowallpanama.com`. Esta segunda barrera se
+mantendrá durante la validación con el supervisor.
+
 ## Status del Excel
 
 Los Gantts nuevos incluyen en `Datos`:
