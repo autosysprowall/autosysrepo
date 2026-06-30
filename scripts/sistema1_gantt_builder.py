@@ -1855,7 +1855,13 @@ def build_gantt_workbook(
     options = llm_options or LlmOptions(enabled=False)
     mapping_notes: list[str] = []
 
-    value_wb = load_workbook(input_path, data_only=True, read_only=False)
+    try:
+        value_wb = load_workbook(input_path, data_only=True, read_only=False)
+    except Exception as exc:
+        raise GanttReviewRequiredError(
+            "ARCHIVO_ROTO_CAUSA_DESCONOCIDA: Excel no pudo abrir el presupuesto "
+            f"({type(exc).__name__})."
+        ) from exc
     try:
         selected_sheet = select_budget_sheet(value_wb)
         source_ws = value_wb[selected_sheet]
@@ -1914,6 +1920,7 @@ def build_gantt_workbook(
             source_file=source_file_name,
             source_sheet=selected_sheet,
             column_mapper=llm_mapper,
+            enforce_quality_gate=True,
         )
         window_start, window_end, notes = read_project_window(value_wb)
     except BudgetExtractionError as exc:

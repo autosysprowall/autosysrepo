@@ -57,7 +57,7 @@ def make_budget(
     wb = Workbook()
     ws = wb.active
     ws.title = "Presupuesto"
-    ws["A1"] = "PRESUPUESTO ORIGINAL"
+    ws["A1"] = "PRESUPUESTO GENERAL"
     ws["A1"].fill = PatternFill("solid", fgColor="C00000")
     ws["A1"].font = Font(bold=True, color="FFFFFF")
     for _ in range(preamble_rows):
@@ -222,6 +222,77 @@ class BudgetExtractionTests(unittest.TestCase):
                 ws,
                 source_file="invalid.xlsx",
                 source_sheet=ws.title,
+            )
+
+    def test_quality_gate_rejects_missing_general_budget(self) -> None:
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["Actividad", "Unidad", "Cantidad", "Costo Unitario", "Costo Total"])
+        ws.append(["Concreto", "m3", 2, 100, 200])
+        with self.assertRaisesRegex(
+            BudgetExtractionError,
+            "SIN_PRESUPUESTO_GENERAL",
+        ):
+            extract_budget_structure(
+                ws,
+                source_file="dividido.xlsx",
+                source_sheet=ws.title,
+                enforce_quality_gate=True,
+            )
+
+    def test_quality_gate_rejects_semantically_swapped_columns(self) -> None:
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["PRESUPUESTO GENERAL"])
+        ws.append(["Actividad", "Unidad", "Cantidad", "Costo Unitario", "Costo Total"])
+        ws.append(["Concreto", 25, "mucho", 100, 200])
+        ws.append(["Formaleta", 30, "varios", 50, 150])
+        with self.assertRaisesRegex(
+            BudgetExtractionError,
+            "CONTENIDO_DE_COLUMNAS_INVALIDO",
+        ):
+            extract_budget_structure(
+                ws,
+                source_file="encabezados-rotos.xlsx",
+                source_sheet=ws.title,
+                enforce_quality_gate=True,
+            )
+
+    def test_quality_gate_rejects_repeated_budget_headers(self) -> None:
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["PRESUPUESTO GENERAL"])
+        ws.append(["Código", "Descripción", "Und", "Cant", "P.U.", "Total"])
+        ws.append(["1.1", "Concreto", "m3", 2, 50, 100])
+        ws.append(["Descripción", "Und", "Código", "Total", "Cant", "P.U."])
+        ws.append(["Formaleta", "m2", "1.2", 120, 3, 40])
+        with self.assertRaisesRegex(
+            BudgetExtractionError,
+            "ENCABEZADOS_REPETIDOS",
+        ):
+            extract_budget_structure(
+                ws,
+                source_file="multiple-blocks.xlsx",
+                source_sheet=ws.title,
+                enforce_quality_gate=True,
+            )
+
+    def test_quality_gate_requires_a_financial_column(self) -> None:
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["PRESUPUESTO GENERAL"])
+        ws.append(["Actividad", "Unidad", "Cantidad"])
+        ws.append(["Concreto", "m3", 2])
+        ws.append(["Formaleta", "m2", 3])
+        with self.assertRaisesRegex(
+            BudgetExtractionError,
+            "COLUMNAS_DE_COSTO_AUSENTES",
+        ):
+            extract_budget_structure(
+                ws,
+                source_file="sin-costos.xlsx",
+                source_sheet=ws.title,
+                enforce_quality_gate=True,
             )
 
     def test_item_material_and_multiple_financial_groups_use_content_validation(self) -> None:
@@ -411,6 +482,24 @@ class GanttWorkbookTests(unittest.TestCase):
                 )
             self.assertFalse(output.exists())
 
+    def test_unreadable_excel_is_rejected_with_unknown_cause(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "2026-098 - Roto.xlsx"
+            output = root / "2026-098_gantt_WORKING.xlsx"
+            source.write_bytes(b"not-an-excel-workbook")
+            with self.assertRaisesRegex(
+                GanttReviewRequiredError,
+                "ARCHIVO_ROTO_CAUSA_DESCONOCIDA",
+            ):
+                build_gantt_workbook(
+                    source,
+                    output,
+                    source.name,
+                    LlmOptions(enabled=False),
+                )
+            self.assertFalse(output.exists())
+
     def test_generated_workbook_preserves_budget_and_builds_functional_gantt(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -547,6 +636,7 @@ class GanttWorkbookTests(unittest.TestCase):
                     "COSTO TOTAL",
                 ]
             )
+            ws["J1"] = "PRESUPUESTO GENERAL"
             ws.append(
                 [
                     "Administracion",

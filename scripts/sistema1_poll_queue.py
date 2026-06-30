@@ -287,6 +287,19 @@ def trim_note(value: str, max_len: int = 240) -> str:
     return value[:max_len]
 
 
+def rejection_queue_updates(error: str) -> dict[str, Any]:
+    return {
+        "Estado": "RequiereRevision",
+        "UltimoError": trim_note(error, 240),
+        "Notas": (
+            "DEVOLVER_PRESUPUESTO: no se generó ni se subió un Gantt. "
+            "El flujo de devolución debe adjuntar el presupuesto original, "
+            "enviar el correo y solo después retirar el archivo de "
+            "Presupuestos Aprobados."
+        ),
+    }
+
+
 def drive_path_from_queue_fields(fields: dict[str, Any]) -> str:
     file_name = str(fields.get("Filename") or fields.get("FileName") or fields.get("Title") or "").strip()
     folder_path = str(fields.get("FolderPath") or "").replace("\\", "/").strip("/")
@@ -606,14 +619,7 @@ def process_queue_item(
             site_id,
             queue_list_id,
             item_id,
-            {
-                "Estado": "RequiereRevision",
-                "UltimoError": error,
-                "Notas": (
-                    "El presupuesto no produjo un Gantt confiable. "
-                    "No se subió un archivo final; revisar Assessment/encabezados."
-                ),
-            },
+            rejection_queue_updates(error),
         )
         return ProcessResult(
             item_id=item_id,

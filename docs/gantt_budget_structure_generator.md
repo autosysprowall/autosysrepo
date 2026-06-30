@@ -284,12 +284,22 @@ actualiza el evento a `RequiereRevision`.
 
 ## Casos de RequiereRevision
 
+- no existe un bloque `Presupuesto General`;
+- aparece una segunda tabla o un encabezado repetido;
+- `Actividad`, `Cantidad`, `Unidad` o `Ítem` no pasan la validación semántica
+  de sus valores;
 - no se encuentra Actividad y dos columnas comerciales;
 - no se extrae ninguna actividad;
 - las fechas del proyecto producen una ventana inválida o imposible para Excel;
 - las columnas del Gantt no coinciden;
 - desaparecen actividades o costos;
 - el workbook no puede reabrirse o guardarse.
+
+Los presupuestos rechazados conservan `EventType = presupuesto_aprobado`, pasan
+a `Estado = RequiereRevision` y reciben el marcador
+`DEVOLVER_PRESUPUESTO` en `Notas`. El procedimiento seguro para adjuntar el
+original, notificar y retirarlo de `Presupuestos Aprobados` está documentado en
+`docs/budget_return_flow.md`.
 
 ## Pruebas
 
@@ -312,6 +322,10 @@ actualiza el evento a `RequiereRevision`.
 - formato, colores originales, alturas, separadores, validaciones, barras y
   secciones combinadas;
 - rechazo de un presupuesto sin encabezado confiable.
+- rechazo por ausencia de `Presupuesto General`;
+- rechazo por columnas semánticamente intercambiadas;
+- rechazo por encabezados repetidos;
+- rechazo de un archivo ilegible con causa desconocida.
 
 También se ejecutó una regresión local, sin modificar ni subir archivos, sobre
 el presupuesto real `2026-066-DOOCOLEGIO ... CAMARAS ELECTRICAS`. Se seleccionó

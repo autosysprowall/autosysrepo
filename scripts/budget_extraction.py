@@ -111,12 +111,23 @@ TOTAL_LABELS = (
     "descuento",
 )
 NOTE_LABELS = ("nota", "notas", "observacion", "observaciones", "aclaracion")
+GENERAL_BUDGET_LABEL = "presupuesto general"
 
 
 class BudgetExtractionError(RuntimeError):
     def __init__(self, message: str, assessment: "BudgetAssessment") -> None:
         super().__init__(message)
         self.assessment = assessment
+
+
+def _reject(assessment: "BudgetAssessment", code: str, message: str) -> None:
+    assessment.validation = {
+        "status": "rejected",
+        "code": code,
+        "message": message,
+    }
+    assessment.warnings.append(message)
+    raise BudgetExtractionError(f"{code}: {message}", assessment)
 
 
 @dataclass
@@ -452,6 +463,98 @@ def _role_matches_profile(field_name: str, profile: dict[str, Any]) -> bool:
     return True
 
 
+def _contains_general_budget_label(ws, scan_limit: int = 60) -> bool:
+    max_row = min(ws.max_row, scan_limit)
+    for row_number in range(1, max_row + 1):
+        for column in range(1, ws.max_column + 1):
+            if GENERAL_BUDGET_LABEL in normalize_text(
+                ws.cell(row_number, column).value
+            ):
+                return True
+    return False
+
+
+def _validate_semantic_mapping(
+    mapping: dict[str, int | None],
+    profiles_by_column: dict[int, dict[str, Any]],
+    cost_columns: list["BudgetCostColumn"],
+    assessment: "BudgetAssessment",
+) -> None:
+    semantic_fields = ("item", "actividad", "unidad", "cantidad")
+    mapped = [
+        (field_name, mapping.get(field_name))
+        for field_name in semantic_fields
+        if mapping.get(field_name)
+    ]
+    by_column: dict[int, list[str]] = {}
+    for field_name, column in mapped:
+        by_column.setdefault(int(column), []).append(field_name)
+    collisions = {
+        column: fields for column, fields in by_column.items() if len(fields) > 1
+    }
+    if collisions:
+        _reject(
+            assessment,
+            "ENCABEZADOS_DESORDENADOS",
+            f"Una misma columna fue interpretada con roles incompatibles: {collisions}.",
+        )
+
+    requirements = {
+        "actividad": ("text_ratio", 0.45, "texto de materiales/actividades"),
+        "cantidad": ("numeric_ratio", 0.45, "cantidades numéricas"),
+        "unidad": ("unit_ratio", 0.30, "unidades reconocibles"),
+    }
+    if mapping.get("item"):
+        requirements["item"] = ("item_ratio", 0.40, "códigos jerárquicos como 1.1")
+
+    failures: list[str] = []
+    for field_name, (metric, minimum, expected) in requirements.items():
+        column = mapping.get(field_name)
+        if not column:
+            failures.append(f"{field_name}: columna ausente")
+            continue
+        profile = profiles_by_column[int(column)]
+        if (
+            profile["sample_count"] >= 2
+            and float(profile.get(metric) or 0.0) < minimum
+        ):
+            failures.append(
+                f"{field_name}: columna {column} no contiene principalmente {expected} "
+                f"({metric}={float(profile.get(metric) or 0.0):.0%})"
+            )
+    if failures:
+        _reject(
+            assessment,
+            "CONTENIDO_DE_COLUMNAS_INVALIDO",
+            "; ".join(failures),
+        )
+
+    if not cost_columns:
+        _reject(
+            assessment,
+            "COLUMNAS_DE_COSTO_AUSENTES",
+            "No se encontró ninguna columna confiable de costo o precio.",
+        )
+    invalid_costs = []
+    for cost_column in cost_columns:
+        profile = profiles_by_column[cost_column.column]
+        if (
+            profile["sample_count"] >= 2
+            and float(profile.get("numeric_ratio") or 0.0) < 0.35
+        ):
+            invalid_costs.append(
+                f"{cost_column.header} (columna {cost_column.column}, "
+                f"numeric_ratio={float(profile.get('numeric_ratio') or 0.0):.0%})"
+            )
+    if invalid_costs:
+        _reject(
+            assessment,
+            "CONTENIDO_DE_COSTOS_INVALIDO",
+            "Estas columnas financieras no contienen principalmente números: "
+            + "; ".join(invalid_costs),
+        )
+
+
 def _financial_role(header: Any) -> str:
     text = normalize_text(header)
     if not text:
@@ -638,10 +741,32 @@ def extract_budget_structure(
     source_sheet: str | None = None,
     scan_limit: int = 50,
     column_mapper: ColumnMapper | None = None,
+    enforce_quality_gate: bool = False,
 ) -> BudgetExtractionResult:
     candidate = detect_header_candidate(ws, scan_limit=scan_limit)
     mapping = dict(candidate.mapping)
     assessment = BudgetAssessment(header_score=candidate.score)
+    if enforce_quality_gate and not _contains_general_budget_label(ws):
+        _reject(
+            assessment,
+            "SIN_PRESUPUESTO_GENERAL",
+            "No se encontró un bloque identificado como Presupuesto General; "
+            "el archivo parece dividido o incompleto.",
+        )
+    if enforce_quality_gate:
+        for row_number in range(candidate.row_number + 1, ws.max_row + 1):
+            values = [
+                ws.cell(row_number, column).value
+                for column in range(1, ws.max_column + 1)
+            ]
+            repeated_mapping, _, _ = resolve_column_mapping(values)
+            if _is_reliable_mapping(repeated_mapping):
+                _reject(
+                    assessment,
+                    "ENCABEZADOS_REPETIDOS",
+                    f"Se encontró otra tabla de presupuesto en la fila {row_number}; "
+                    "el archivo parece dividido o tiene encabezados desordenados.",
+                )
     profile_end_row = min(
         ws.max_row,
         _explicit_table_end_row(ws, candidate.row_number)
@@ -712,6 +837,19 @@ def extract_budget_structure(
             "mode": "complex_validation" if complex_mapping else "missing_fields",
         }
 
+    if enforce_quality_gate:
+        _validate_semantic_mapping(
+            mapping,
+            profiles_by_column,
+            detect_cost_columns(
+                ws,
+                candidate.row_number,
+                candidate.headers,
+                mapping,
+            ),
+            assessment,
+        )
+
     _, scores, aliases = resolve_column_mapping(candidate.headers)
     if not _is_reliable_mapping(mapping):
         assessment.missing_columns = [
@@ -771,6 +909,13 @@ def extract_budget_structure(
 
         row_mapping, _, _ = resolve_column_mapping(values)
         if _is_reliable_mapping(row_mapping):
+            if enforce_quality_gate:
+                _reject(
+                    assessment,
+                    "ENCABEZADOS_REPETIDOS",
+                    f"Se encontró otra tabla de presupuesto en la fila {row_number}; "
+                    "el archivo parece dividido o tiene encabezados desordenados.",
+                )
             current_mapping = row_mapping
             current_headers = list(values)
             assessment.ignored_rows.append(
