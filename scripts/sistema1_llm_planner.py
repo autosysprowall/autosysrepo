@@ -10,6 +10,19 @@ DEFAULT_MODEL = "gpt-4o-mini"
 PLANNING_BUCKETS = ["PRELIMINARES", "FABRICA", "CAMPO", "ACABADOS", "NO_CRONOGRAMA"]
 LINE_TYPES = ["SECTION", "ACTIVITY", "MILESTONE", "RESOURCE_ONLY", "TOTAL", "ADMIN_INDIRECT", "UNKNOWN"]
 
+COLUMN_MAPPING_SYSTEM_PROMPT = """
+Eres un analista de presupuestos. Tu única tarea es sugerir el índice de columnas
+existentes para campos que las reglas determinísticas no pudieron reconocer.
+
+Reglas estrictas:
+- Usa solamente índices de columnas recibidos.
+- No inventes columnas ni valores.
+- Devuelve null cuando no exista evidencia suficiente.
+- Una columna no puede representar dos campos.
+- No cambies ni resumas contenido del presupuesto.
+- Devuelve solo JSON válido con el objeto "mapping".
+""".strip()
+
 
 SYSTEM_PROMPT = """
 Eres un planificador senior de obra y analista de presupuestos de construccion prefabricada.
@@ -279,3 +292,69 @@ def request_llm_plan(
         "batches": len(usages),
     }
     return LlmPlanResult(decisions=all_decisions, warnings=all_warnings, usage=total_usage)
+
+
+def request_llm_column_mapping(
+    *,
+    workbook_name: str,
+    sheet_name: str,
+    headers: list[Any],
+    missing_fields: tuple[str, ...],
+    model: str | None = None,
+) -> dict[str, int | None]:
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY no esta configurada.")
+    try:
+        from openai import OpenAI
+    except ImportError as exc:
+        raise RuntimeError("Falta instalar openai en el runner.") from exc
+
+    indexed_headers = [
+        {"column_index": index, "header": str(value or "").strip()}
+        for index, value in enumerate(headers, start=1)
+        if str(value or "").strip()
+    ]
+    payload = {
+        "workbook_name": workbook_name,
+        "sheet_name": sheet_name,
+        "missing_fields": list(missing_fields),
+        "allowed_fields": [
+            "actividad",
+            "cc",
+            "unidad",
+            "cantidad",
+            "costo_unitario",
+            "costo_total",
+        ],
+        "headers": indexed_headers,
+        "response_example": {
+            "mapping": {
+                "actividad": 3,
+                "cc": None,
+                "unidad": 5,
+            }
+        },
+    }
+    client = OpenAI(api_key=api_key)
+    response = client.chat.completions.create(
+        model=model or DEFAULT_MODEL,
+        messages=[
+            {"role": "system", "content": COLUMN_MAPPING_SYSTEM_PROMPT},
+            {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+        ],
+        response_format={"type": "json_object"},
+        temperature=0,
+    )
+    raw = json.loads(response.choices[0].message.content or "{}")
+    proposed = raw.get("mapping") if isinstance(raw, dict) else {}
+    if not isinstance(proposed, dict):
+        return {}
+    result: dict[str, int | None] = {}
+    for field_name in missing_fields:
+        value = proposed.get(field_name)
+        try:
+            result[field_name] = int(value) if value is not None else None
+        except (TypeError, ValueError):
+            result[field_name] = None
+    return result

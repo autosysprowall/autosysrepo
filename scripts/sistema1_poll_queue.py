@@ -16,7 +16,12 @@ from urllib.parse import quote
 import msal
 import requests
 
-from sistema1_gantt_builder import LlmOptions, derive_project_identity, build_gantt_workbook
+from sistema1_gantt_builder import (
+    GanttReviewRequiredError,
+    LlmOptions,
+    build_gantt_workbook,
+    derive_project_identity,
+)
 
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
@@ -511,7 +516,7 @@ def process_queue_item(
         source_file_name = Path(source_drive_path).name
         identity = derive_project_identity(source_file_name)
         project_folder = f"{settings.active_projects_root}/{identity.folder_name}"
-        gantt_folder = f"{project_folder}/gantts"
+        gantt_folder = f"{project_folder}/gantts/working"
 
         local_budget = work_dir / "input" / source_file_name
         local_gantt = work_dir / "output" / identity.gantt_file_name
@@ -593,6 +598,28 @@ def process_queue_item(
             gantt_url=gantt_url,
             budget_url=budget_url,
             message=note,
+        )
+    except GanttReviewRequiredError as exc:
+        error = trim_note(str(exc), 240)
+        update_queue_fields(
+            token,
+            site_id,
+            queue_list_id,
+            item_id,
+            {
+                "Estado": "RequiereRevision",
+                "UltimoError": error,
+                "Notas": (
+                    "El presupuesto no produjo un Gantt confiable. "
+                    "No se subió un archivo final; revisar Assessment/encabezados."
+                ),
+            },
+        )
+        return ProcessResult(
+            item_id=item_id,
+            title=title,
+            status="RequiereRevision",
+            message=error,
         )
     except Exception as exc:
         error = trim_note(str(exc), 240)

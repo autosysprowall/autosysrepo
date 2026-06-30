@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import calendar
+import io
+import json
 import re
+import unicodedata
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from hashlib import sha1
@@ -13,7 +17,12 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 
-from sistema1_llm_planner import request_llm_plan
+from budget_extraction import (
+    BudgetExtractionError,
+    BudgetExtractionResult,
+    extract_budget_structure,
+)
+from sistema1_llm_planner import request_llm_column_mapping, request_llm_plan
 
 
 HEADER_ROW = 10
@@ -96,12 +105,17 @@ class BuildResult:
     window_start: date
     window_end: date
     notes: list[str]
+    validation: dict[str, Any]
 
 
 @dataclass(frozen=True)
 class LlmOptions:
     enabled: bool = False
     model: str = ""
+
+
+class GanttReviewRequiredError(RuntimeError):
+    """El presupuesto o el archivo generado requiere revisión antes de subirlo."""
 
 
 def normalize_text(value: Any) -> str:
@@ -117,6 +131,8 @@ def normalize_text(value: Any) -> str:
     }
     for source, target in replacements.items():
         text = text.replace(source, target)
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(character for character in text if not unicodedata.combining(character))
     return re.sub(r"\s+", " ", text)
 
 
@@ -239,7 +255,7 @@ def derive_project_identity(file_name: str) -> ProjectIdentity:
         project_name = safe_path_name(stem, 80)
 
     folder_name = safe_path_name(f"{project_id}_{project_name}", 120)
-    gantt_file_name = f"gannt_{safe_file_stem(stem)}_working.xlsx"
+    gantt_file_name = f"{project_id}_gantt_WORKING.xlsx"
     budget_copy_name = f"{project_id}_presupuesto_aprobado{Path(file_name).suffix or '.xlsx'}"
     return ProjectIdentity(
         project_id=project_id,
@@ -291,50 +307,125 @@ def find_value_near_label(ws, label_terms: tuple[str, ...]) -> Any:
     return None
 
 
+def find_label_and_value(ws, label_terms: tuple[str, ...]) -> tuple[str, Any]:
+    for row in ws.iter_rows():
+        for cell in row:
+            label = normalize_text(cell.value)
+            if not label or not all(term in label for term in label_terms):
+                continue
+            for offset in range(1, 5):
+                value = ws.cell(cell.row, cell.column + offset).value
+                if display_text(value):
+                    return label, value
+            value = ws.cell(cell.row + 1, cell.column).value
+            if display_text(value):
+                return label, value
+    return "", None
+
+
+def parse_duration_value(label: str, value: Any) -> tuple[int | None, str]:
+    text = normalize_text(f"{label} {display_text(value, 80)}")
+    amount = parse_int_value(value)
+    if amount is None:
+        amount = parse_int_value(text)
+    if amount is None or amount <= 0:
+        return None, "days"
+    if any(term in text for term in ("ano", "anos", "year", "years")):
+        return amount, "years"
+    if any(term in text for term in ("mes", "meses", "month", "months")):
+        return amount, "months"
+    if any(term in text for term in ("semana", "semanas", "week", "weeks")):
+        return amount, "weeks"
+    return amount, "days"
+
+
+def add_calendar_duration(start: date, amount: int, unit: str) -> date:
+    if unit == "days":
+        return start + timedelta(days=amount - 1)
+    if unit == "weeks":
+        return start + timedelta(weeks=amount) - timedelta(days=1)
+    months = amount * 12 if unit == "years" else amount
+    month_index = start.month - 1 + months
+    year = start.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(start.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day) - timedelta(days=1)
+
+
+def subtract_calendar_duration(end: date, amount: int, unit: str) -> date:
+    if unit == "days":
+        return end - timedelta(days=amount - 1)
+    if unit == "weeks":
+        return end - timedelta(weeks=amount) + timedelta(days=1)
+    months = amount * 12 if unit == "years" else amount
+    month_index = end.month - 1 - months
+    year = end.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(end.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day) + timedelta(days=1)
+
+
 def read_project_window(wb) -> tuple[date, date, list[str]]:
     notes: list[str] = []
     start = None
     end = None
-    duration = None
+    duration_amount = None
+    duration_unit = "days"
 
     if "Datos" in wb.sheetnames:
         ws = wb["Datos"]
         start = parse_date_value(find_value_near_label(ws, ("fecha", "inicio")))
         end = parse_date_value(find_value_near_label(ws, ("fecha", "final")))
-        duration = parse_int_value(find_value_near_label(ws, ("duracion",)))
+        duration_label, duration_value = find_label_and_value(ws, ("duracion",))
+        duration_amount, duration_unit = parse_duration_value(duration_label, duration_value)
 
-    if start and end and duration:
+    if start and end:
         if end < start:
             start, end = end, start
-            notes.append("Fechas de Datos venian invertidas; se ordenaron.")
-        date_duration = max(1, (end - start).days + 1)
-        duration_end = start + timedelta(days=duration - 1)
-        if duration < date_duration:
-            end = duration_end
-            notes.append("Datos traia Fecha Final y Duracion no coincidentes; se uso la ventana mas corta.")
-    elif start and duration and not end:
-        end = start + timedelta(days=duration - 1)
-        notes.append("Fecha final calculada desde Fecha de Inicio y Duracion.")
-    elif end and duration and not start:
-        start = end - timedelta(days=duration - 1)
-        notes.append("Fecha de inicio calculada desde Fecha Final y Duracion.")
+            notes.append("Fechas de Datos venían invertidas; se ordenaron.")
+        notes.append(
+            "Calendario delimitado por Fecha de Inicio y Fecha Final; "
+            "Fecha Final tuvo prioridad sobre Duración."
+        )
+    elif start and duration_amount and not end:
+        end = add_calendar_duration(start, duration_amount, duration_unit)
+        notes.append(
+            f"Fecha Final calculada desde Duración ({duration_amount} {duration_unit})."
+        )
+    elif end and duration_amount and not start:
+        start = subtract_calendar_duration(end, duration_amount, duration_unit)
+        notes.append(
+            f"Fecha de Inicio calculada hacia atrás desde Fecha Final "
+            f"({duration_amount} {duration_unit})."
+        )
     elif start and end and end < start:
         start, end = end, start
-        notes.append("Fechas de Datos venian invertidas; se ordenaron.")
+        notes.append("Fechas de Datos venían invertidas; se ordenaron.")
 
     if not start:
         today = date.today()
         start = date(today.year, today.month, 1)
-        notes.append("No se encontro fecha de inicio; se uso una ventana visual temporal.")
+        notes.append("No se encontró fecha de inicio; se usó una ventana visual temporal.")
     if not end:
         end = start + timedelta(days=DEFAULT_WINDOW_DAYS - 1)
-        notes.append(f"No se encontro fecha final; se uso una ventana visual de {DEFAULT_WINDOW_DAYS} dias.")
+        notes.append(
+            f"No se encontró fecha final; se usó una ventana visual de "
+            f"{DEFAULT_WINDOW_DAYS} días."
+        )
     return start, end, notes
 
 
 def select_budget_sheet(wb) -> str:
     names = wb.sheetnames
     normalized = {normalize_text(name): name for name in names}
+    flexio = [
+        name
+        for name in names
+        if "presupuesto" in normalize_text(name)
+        and "flexio" in normalize_text(name)
+    ]
+    if flexio:
+        return flexio[0]
     if "presupuesto" in normalized:
         return normalized["presupuesto"]
     general = [name for name in names if "presupuesto" in normalize_text(name) and "general" in normalize_text(name)]
@@ -986,71 +1077,706 @@ def write_metadata_sheet(wb, identity: ProjectIdentity, source_file: str, select
     ws.freeze_panes = None
 
 
+GANTT_FIXED_HEADERS = [
+    "Actividad",
+    "CC",
+    "Fecha de Inicio",
+    "Fecha de Fin",
+    "Estatus",
+    "Unidad",
+    "Cantidad",
+    "Costo Unitario",
+    "Costo Total",
+]
+
+
+def gantt_headers(has_cc: bool) -> list[str]:
+    return [
+        header
+        for header in GANTT_FIXED_HEADERS
+        if has_cc or header != "CC"
+    ]
+
+
+def _reset_controlled_gantt_sheet(ws) -> None:
+    for merged_range in list(ws.merged_cells.ranges):
+        ws.unmerge_cells(str(merged_range))
+    if ws.max_row:
+        ws.delete_rows(1, ws.max_row)
+    if ws.max_column:
+        ws.delete_cols(1, ws.max_column)
+    ws.data_validations.dataValidation = []
+    ws.conditional_formatting._cf_rules.clear()
+    ws.auto_filter.ref = None
+    ws.freeze_panes = None
+    ws.row_dimensions.clear()
+    ws.column_dimensions.clear()
+
+
+def _prepare_gantt_sheet(wb):
+    if "Gantt" in wb.sheetnames:
+        ws = wb["Gantt"]
+        _reset_controlled_gantt_sheet(ws)
+        return ws
+    if "Gantt_Diario" in wb.sheetnames:
+        ws = wb["Gantt_Diario"]
+        ws.title = "Gantt"
+        _reset_controlled_gantt_sheet(ws)
+        return ws
+    return wb.create_sheet("Gantt", 0)
+
+
+def _calendar_headers(ws, start: date, end: date, start_column: int) -> int:
+    days = (end - start).days + 1
+    if days < 1:
+        raise GanttReviewRequiredError("La ventana del proyecto tiene fechas inválidas.")
+    if start_column + days - 1 > 16384:
+        raise GanttReviewRequiredError(
+            "La ventana del proyecto excede el máximo de columnas de Excel."
+        )
+
+    month_fill = PatternFill("solid", fgColor="244B6B")
+    day_fill = PatternFill("solid", fgColor="D9EAF7")
+    thin = Side(style="thin", color="D9E2EA")
+    month_start = start_column
+    active_month = (start.year, start.month)
+    for offset in range(days):
+        current = start + timedelta(days=offset)
+        column = start_column + offset
+        ws.column_dimensions[get_column_letter(column)].width = 3.2
+        day_cell = ws.cell(HEADER_ROW, column, current)
+        day_cell.number_format = "d"
+        day_cell.font = Font(bold=True, size=8, color="1F2937")
+        day_cell.fill = day_fill
+        day_cell.alignment = Alignment(horizontal="center", vertical="center")
+        day_cell.border = Border(left=thin, right=thin, top=thin, bottom=thin)
+        weekday_cell = ws.cell(WEEKDAY_ROW, column, WEEKDAYS_ES[current.weekday()])
+        weekday_cell.font = Font(size=7, color="4B5563")
+        weekday_cell.alignment = Alignment(horizontal="center", vertical="center")
+        weekday_cell.border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+        next_month = (current.year, current.month)
+        next_day = current + timedelta(days=1)
+        closes_month = offset == days - 1 or (next_day.year, next_day.month) != next_month
+        if closes_month:
+            if column > month_start:
+                ws.merge_cells(
+                    start_row=HEADER_ROW - 1,
+                    start_column=month_start,
+                    end_row=HEADER_ROW - 1,
+                    end_column=column,
+                )
+            month_cell = ws.cell(HEADER_ROW - 1, month_start)
+            month_cell.value = f"{MONTHS_ES[active_month[1]]} {active_month[0]}"
+            month_cell.fill = month_fill
+            month_cell.font = Font(bold=True, color="FFFFFF", size=9)
+            month_cell.alignment = Alignment(horizontal="center", vertical="center")
+            month_start = column + 1
+            active_month = (next_day.year, next_day.month)
+    return start_column + days - 1
+
+
+def _base_column_indexes(headers: list[str]) -> dict[str, int]:
+    return {header: index for index, header in enumerate(headers, start=1)}
+
+
+def _link_source_formulas(
+    extraction: BudgetExtractionResult,
+    source_ws,
+) -> None:
+    escaped_sheet = source_ws.title.replace("'", "''")
+    linked = 0
+    for row in extraction.rows:
+        if row.row_type != "activity":
+            continue
+        for field_name in ("cantidad", "costo_unitario", "costo_total"):
+            coordinate = row.source_cells.get(field_name)
+            if not coordinate:
+                continue
+            source_value = source_ws[coordinate].value
+            if not (isinstance(source_value, str) and source_value.startswith("=")):
+                continue
+            setattr(row, field_name, f"='{escaped_sheet}'!{coordinate}")
+            row.warnings.append(
+                f"{field_name} conserva la fórmula mediante vínculo a {source_ws.title}!{coordinate}."
+            )
+            linked += 1
+    if linked:
+        extraction.assessment.warnings.append(
+            f"Se preservaron {linked} valores calculados como vínculos a fórmulas del presupuesto."
+        )
+
+
+def _write_gantt_rows(
+    ws,
+    extraction: BudgetExtractionResult,
+    headers: list[str],
+    calendar_start_column: int,
+    calendar_end_column: int,
+) -> tuple[list[int], int]:
+    indexes = _base_column_indexes(headers)
+    border = Border(
+        left=Side(style="thin", color="B7C9D8"),
+        right=Side(style="thin", color="B7C9D8"),
+        top=Side(style="thin", color="B7C9D8"),
+        bottom=Side(style="thin", color="B7C9D8"),
+    )
+    section_fill = PatternFill("solid", fgColor="D9EAF7")
+    alternate_fill = PatternFill("solid", fgColor="F7FAFC")
+    warning_fill = PatternFill("solid", fgColor="FFF2CC")
+    activity_rows: list[int] = []
+    output_row = DATA_START_ROW
+
+    for source_row in extraction.rows:
+        if source_row.row_type == "section":
+            for column in range(1, calendar_end_column + 1):
+                cell = ws.cell(output_row, column)
+                cell.fill = section_fill
+                cell.font = Font(bold=True, color="1F3864")
+                cell.border = border
+            ws.merge_cells(
+                start_row=output_row,
+                start_column=1,
+                end_row=output_row,
+                end_column=calendar_end_column,
+            )
+            label = source_row.actividad
+            if display_text(source_row.cc):
+                label = f"{display_text(source_row.cc)} - {label}"
+            cell = ws.cell(output_row, 1, label)
+            cell.alignment = Alignment(
+                horizontal="right",
+                vertical="center",
+                wrap_text=True,
+            )
+            ws.row_dimensions[output_row].height = 22
+            output_row += 1
+            continue
+
+        activity_rows.append(output_row)
+        values = {
+            "Actividad": source_row.actividad,
+            "CC": source_row.cc,
+            "Fecha de Inicio": None,
+            "Fecha de Fin": None,
+            "Estatus": None,
+            "Unidad": source_row.unidad,
+            "Cantidad": source_row.cantidad,
+            "Costo Unitario": source_row.costo_unitario,
+            "Costo Total": source_row.costo_total,
+        }
+        if (
+            values["Costo Total"] is None
+            and values["Cantidad"] is not None
+            and values["Costo Unitario"] is not None
+        ):
+            quantity_column = get_column_letter(indexes["Cantidad"])
+            unit_cost_column = get_column_letter(indexes["Costo Unitario"])
+            values["Costo Total"] = (
+                f"={quantity_column}{output_row}*{unit_cost_column}{output_row}"
+            )
+            if source_row.row_number not in extraction.assessment.calculated_cost_rows:
+                extraction.assessment.calculated_cost_rows.append(source_row.row_number)
+            source_row.warnings.append(
+                "Costo Total calculado en el Gantt como Cantidad × Costo Unitario."
+            )
+        for header, column in indexes.items():
+            cell = ws.cell(output_row, column, values.get(header))
+            cell.border = border
+            cell.alignment = Alignment(
+                vertical="center",
+                wrap_text=header == "Actividad",
+                indent=source_row.level if header == "Actividad" else 0,
+            )
+            if len(activity_rows) % 2 == 0:
+                cell.fill = alternate_fill
+            if source_row.warnings:
+                cell.fill = warning_fill
+        for header in ("Fecha de Inicio", "Fecha de Fin"):
+            ws.cell(output_row, indexes[header]).number_format = "dd/mm/yyyy"
+        for header in ("Cantidad",):
+            ws.cell(output_row, indexes[header]).number_format = "#,##0.00"
+        for header in ("Costo Unitario", "Costo Total"):
+            ws.cell(output_row, indexes[header]).number_format = '$#,##0.00;[Red]-$#,##0.00'
+
+        calendar_border = Side(style="thin", color="E3E8EF")
+        for column in range(calendar_start_column, calendar_end_column + 1):
+            calendar_cell = ws.cell(output_row, column)
+            calendar_cell.border = Border(
+                left=calendar_border,
+                right=calendar_border,
+                top=calendar_border,
+                bottom=calendar_border,
+            )
+        output_row += 1
+    return activity_rows, output_row - 1
+
+
+def _add_gantt_validations_and_bars(
+    ws,
+    activity_rows: list[int],
+    headers: list[str],
+    calendar_start_column: int,
+    calendar_end_column: int,
+) -> None:
+    if not activity_rows:
+        return
+    indexes = _base_column_indexes(headers)
+    start_column = get_column_letter(indexes["Fecha de Inicio"])
+    end_column = get_column_letter(indexes["Fecha de Fin"])
+    status_column = get_column_letter(indexes["Estatus"])
+    date_validation = DataValidation(
+        type="date",
+        operator="between",
+        formula1="DATE(2000,1,1)",
+        formula2="DATE(2100,12,31)",
+        allow_blank=True,
+    )
+    date_validation.error = "Ingrese una fecha válida."
+    date_validation.errorTitle = "Fecha inválida"
+    ws.add_data_validation(date_validation)
+    status_validation = DataValidation(
+        type="list",
+        formula1='"Pendiente,En progreso,En revisión inicial"',
+        allow_blank=True,
+    )
+    ws.add_data_validation(status_validation)
+
+    first_calendar = get_column_letter(calendar_start_column)
+    last_calendar = get_column_letter(calendar_end_column)
+    bar_fill = PatternFill(fill_type="solid", start_color="2F80ED", end_color="2F80ED")
+    invalid_fill = PatternFill(fill_type="solid", start_color="F8D7DA", end_color="F8D7DA")
+    for row_number in activity_rows:
+        date_validation.add(f"{start_column}{row_number}:{end_column}{row_number}")
+        status_validation.add(f"{status_column}{row_number}")
+        calendar_range = f"{first_calendar}{row_number}:{last_calendar}{row_number}"
+        ws.conditional_formatting.add(
+            calendar_range,
+            FormulaRule(
+                formula=[
+                    f'=AND(${start_column}{row_number}<>"",'
+                    f'${end_column}{row_number}<>"",'
+                    f'{first_calendar}${HEADER_ROW}>=${start_column}{row_number},'
+                    f'{first_calendar}${HEADER_ROW}<=${end_column}{row_number})'
+                ],
+                fill=bar_fill,
+            ),
+        )
+        ws.conditional_formatting.add(
+            f"{start_column}{row_number}:{end_column}{row_number}",
+            FormulaRule(
+                formula=[
+                    f'=AND(${start_column}{row_number}<>"",'
+                    f'${end_column}{row_number}<>"",'
+                    f'${end_column}{row_number}<${start_column}{row_number})'
+                ],
+                fill=invalid_fill,
+            ),
+        )
+
+
+def _style_gantt_sheet(
+    ws,
+    identity: ProjectIdentity,
+    source_file_name: str,
+    headers: list[str],
+    calendar_end_column: int,
+    data_end_row: int,
+) -> None:
+    ws.sheet_view.showGridLines = False
+    ws.freeze_panes = None
+    ws.auto_filter.ref = None
+    widths = {
+        "Actividad": 55,
+        "CC": 16,
+        "Fecha de Inicio": 15,
+        "Fecha de Fin": 15,
+        "Estatus": 20,
+        "Unidad": 12,
+        "Cantidad": 14,
+        "Costo Unitario": 17,
+        "Costo Total": 17,
+    }
+    header_fill = PatternFill("solid", fgColor="1F3864")
+    border = Border(
+        left=Side(style="thin", color="B7C9D8"),
+        right=Side(style="thin", color="B7C9D8"),
+        top=Side(style="thin", color="B7C9D8"),
+        bottom=Side(style="thin", color="B7C9D8"),
+    )
+    for column, header in enumerate(headers, start=1):
+        ws.column_dimensions[get_column_letter(column)].width = widths[header]
+        cell = ws.cell(HEADER_ROW, column, header)
+        cell.fill = header_fill
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = border
+        subheader = ws.cell(WEEKDAY_ROW, column)
+        subheader.fill = PatternFill("solid", fgColor="EAF2F8")
+        subheader.border = border
+
+    title_rows = (
+        (1, "AUTOSYS - GANTT WORKING", 15, True),
+        (2, f"Proyecto: {identity.project_id} - {identity.project_name}", 11, True),
+        (3, f"Presupuesto fuente: {source_file_name}", 10, False),
+        (
+            4,
+            "Las fechas por actividad están vacías. El calendario se pinta al completar "
+            "Fecha de Inicio y Fecha de Fin.",
+            10,
+            False,
+        ),
+    )
+    for row_number, text, size, bold in title_rows:
+        if calendar_end_column > 1:
+            ws.merge_cells(
+                start_row=row_number,
+                start_column=1,
+                end_row=row_number,
+                end_column=calendar_end_column,
+            )
+        cell = ws.cell(row_number, 1, text)
+        cell.font = Font(bold=bold, size=size, color="1F3864")
+        cell.alignment = Alignment(horizontal="left", vertical="center")
+    ws.row_dimensions[HEADER_ROW].height = 34
+    ws.row_dimensions[WEEKDAY_ROW].height = 18
+    for row_number in range(DATA_START_ROW, data_end_row + 1):
+        if ws.row_dimensions[row_number].height is None:
+            ws.row_dimensions[row_number].height = 21
+
+
+def _metadata_sheet(wb, identity: ProjectIdentity, source_file: str, source_sheet: str, notes: list[str]) -> None:
+    if "Datos" in wb.sheetnames:
+        ws = wb["Datos"]
+    else:
+        ws = wb.create_sheet("Datos")
+    existing: dict[str, int] = {}
+    for row_number in range(1, ws.max_row + 1):
+        label = normalize_text(ws.cell(row_number, 1).value)
+        if label:
+            existing[label] = row_number
+    additions = [
+        ("ProyectoID", identity.project_id),
+        ("NombreProyecto", identity.project_name),
+        ("ArchivoPresupuesto", source_file),
+        ("HojaPresupuestoUsada", source_sheet),
+        ("EstadoGantt", "En progreso"),
+        ("NotasGeneradorGantt", " | ".join(notes)),
+    ]
+    row_number = max(1, ws.max_row + 1)
+    for label, value in additions:
+        if normalize_text(label) in existing:
+            continue
+        ws.cell(row_number, 1, label).font = Font(bold=True)
+        ws.cell(row_number, 2, value)
+        row_number += 1
+    ws.column_dimensions["A"].width = max(ws.column_dimensions["A"].width or 0, 28)
+    ws.column_dimensions["B"].width = max(ws.column_dimensions["B"].width or 0, 90)
+    ws.freeze_panes = None
+
+
+def _assessment_sheet(
+    wb,
+    extraction: BudgetExtractionResult,
+    validation: dict[str, Any] | None = None,
+) -> None:
+    if "Assessment" in wb.sheetnames:
+        index = wb.sheetnames.index("Assessment")
+        wb.remove(wb["Assessment"])
+        ws = wb.create_sheet("Assessment", index)
+    else:
+        ws = wb.create_sheet("Assessment")
+    assessment = extraction.assessment
+    summary = [
+        ("Archivo fuente", extraction.source_file),
+        ("Hoja usada", extraction.source_sheet),
+        ("Fila de encabezado", extraction.header_row),
+        ("Filas preservadas", len(extraction.rows)),
+        (
+            "Filas de actividad",
+            sum(1 for row in extraction.rows if row.row_type == "activity"),
+        ),
+        (
+            "Filas agrupadoras",
+            sum(1 for row in extraction.rows if row.row_type == "section"),
+        ),
+        ("Columnas faltantes", ", ".join(assessment.missing_columns) or "Ninguna"),
+        ("LLM usado para mapping", "Sí" if assessment.llm_mapping_used else "No"),
+        (
+            "Validación final",
+            json.dumps(validation or {"status": "pending"}, ensure_ascii=False, default=str),
+        ),
+    ]
+    ws.append(["Assessment del generador de Gantt", "Valor"])
+    for label, value in summary:
+        ws.append([label, value])
+
+    ws.append([])
+    ws.append(["Campo", "Columna", "Encabezado fuente", "Alias usado", "Score"])
+    for field_name, details in assessment.detected_columns.items():
+        ws.append(
+            [
+                field_name,
+                details.get("column"),
+                details.get("header"),
+                assessment.aliases_used.get(field_name, ""),
+                details.get("score"),
+            ]
+        )
+
+    ws.append([])
+    ws.append(["Fila ignorada", "Razón", "Actividad"])
+    for item in assessment.ignored_rows:
+        ws.append([item.get("row_number"), item.get("reason"), item.get("activity", "")])
+
+    ws.append([])
+    ws.append(["Fila ambigua", "Actividad", "Razón"])
+    for item in assessment.ambiguous_rows:
+        ws.append([item.get("row_number"), item.get("activity"), item.get("reason")])
+
+    ws.append([])
+    ws.append(["Costos calculados", "Filas fuente"])
+    ws.append(
+        [
+            len(assessment.calculated_cost_rows),
+            ", ".join(str(value) for value in assessment.calculated_cost_rows),
+        ]
+    )
+    ws.append([])
+    ws.append(["Advertencias"])
+    for warning in assessment.warnings:
+        ws.append([warning])
+    for extracted_row in extraction.rows:
+        for warning in extracted_row.warnings:
+            ws.append([f"Fila {extracted_row.row_number}: {warning}"])
+
+    ws.column_dimensions["A"].width = 30
+    ws.column_dimensions["B"].width = 90
+    ws.column_dimensions["C"].width = 45
+    ws.column_dimensions["D"].width = 30
+    ws.column_dimensions["E"].width = 14
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="1F3864")
+    ws.freeze_panes = None
+
+
+def validate_generated_gantt(
+    output_path: Path,
+    extraction: BudgetExtractionResult,
+    has_cc: bool,
+) -> dict[str, Any]:
+    if not output_path.exists() or output_path.stat().st_size <= 0:
+        raise GanttReviewRequiredError("El archivo Gantt no existe o quedó vacío.")
+    wb = load_workbook(output_path, data_only=False, read_only=False)
+    try:
+        if "Gantt" not in wb.sheetnames:
+            raise GanttReviewRequiredError("El archivo generado no contiene la hoja Gantt.")
+        ws = wb["Gantt"]
+        expected_headers = gantt_headers(has_cc)
+        actual_headers = [
+            display_text(ws.cell(HEADER_ROW, column).value, 80)
+            for column in range(1, len(expected_headers) + 1)
+        ]
+        if actual_headers != expected_headers:
+            raise GanttReviewRequiredError(
+                f"Encabezados Gantt inválidos. Esperados={expected_headers}; "
+                f"detectados={actual_headers}."
+            )
+        merged_rows = {
+            merged_range.min_row
+            for merged_range in ws.merged_cells.ranges
+            if merged_range.min_row >= DATA_START_ROW
+        }
+        output_activity_rows = [
+            row_number
+            for row_number in range(DATA_START_ROW, ws.max_row + 1)
+            if row_number not in merged_rows and display_text(ws.cell(row_number, 1).value)
+        ]
+        expected_activities = sum(
+            1 for row in extraction.rows if row.row_type == "activity"
+        )
+        if len(output_activity_rows) != expected_activities:
+            raise GanttReviewRequiredError(
+                f"Cantidad de actividades inconsistente: esperadas={expected_activities}, "
+                f"generadas={len(output_activity_rows)}."
+            )
+        indexes = _base_column_indexes(expected_headers)
+        date_cells_blank = all(
+            ws.cell(row_number, indexes["Fecha de Inicio"]).value in (None, "")
+            and ws.cell(row_number, indexes["Fecha de Fin"]).value in (None, "")
+            for row_number in output_activity_rows
+        )
+        if not date_cells_blank:
+            raise GanttReviewRequiredError(
+                "El generador introdujo fechas por actividad; deben quedar vacías."
+            )
+        source_has_costs = any(
+            row.costo_unitario is not None or row.costo_total is not None
+            for row in extraction.rows
+            if row.row_type == "activity"
+        )
+        output_has_costs = any(
+            ws.cell(row_number, indexes["Costo Unitario"]).value is not None
+            or ws.cell(row_number, indexes["Costo Total"]).value is not None
+            for row_number in output_activity_rows
+        )
+        if source_has_costs and not output_has_costs:
+            raise GanttReviewRequiredError(
+                "El presupuesto tenía costos, pero el Gantt quedó sin costos."
+            )
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        if buffer.tell() <= 0:
+            raise GanttReviewRequiredError(
+                "El workbook no pudo volver a guardarse correctamente."
+            )
+        return {
+            "status": "ok",
+            "sheet": "Gantt",
+            "headers": expected_headers,
+            "activity_rows": len(output_activity_rows),
+            "source_has_costs": source_has_costs,
+            "output_has_costs": output_has_costs,
+            "dates_blank": date_cells_blank,
+            "file_size": output_path.stat().st_size,
+            "reopen_and_save": True,
+        }
+    finally:
+        wb.close()
+
+
 def build_gantt_workbook(
     input_path: Path,
     output_path: Path,
     source_file_name: str,
     llm_options: LlmOptions | None = None,
 ) -> BuildResult:
-    source_wb = load_workbook(input_path, data_only=True, read_only=False)
+    options = llm_options or LlmOptions(enabled=False)
+    mapping_notes: list[str] = []
+
+    value_wb = load_workbook(input_path, data_only=True, read_only=False)
     try:
-        selected_sheet = select_budget_sheet(source_wb)
-        source_ws = source_wb[selected_sheet]
-        header_row = detect_header_row(source_ws)
-        rows = extract_budget_rows(source_ws, header_row)
-        window_start, window_end, notes = read_project_window(source_wb)
+        selected_sheet = select_budget_sheet(value_wb)
+        source_ws = value_wb[selected_sheet]
+
+        def llm_mapper(
+            sheet_name: str,
+            headers: list[Any],
+            missing_fields: tuple[str, ...],
+        ) -> dict[str, int | None]:
+            if not options.enabled:
+                mapping_notes.append(
+                    "Mapping LLM no ejecutado porque OPENAI_ACTIVITY_PLANNER_MODE no está live."
+                )
+                return {}
+            try:
+                result = request_llm_column_mapping(
+                    workbook_name=source_file_name,
+                    sheet_name=sheet_name,
+                    headers=headers,
+                    missing_fields=missing_fields,
+                    model=options.model or None,
+                )
+                mapping_notes.append(
+                    "LLM usado solamente como fallback de mapping de columnas faltantes."
+                )
+                return result
+            except Exception as exc:
+                mapping_notes.append(
+                    f"Fallback LLM de columnas falló; no se forzó mapping: {exc}"
+                )
+                return {}
+
+        extraction = extract_budget_structure(
+            source_ws,
+            source_file=source_file_name,
+            source_sheet=selected_sheet,
+            column_mapper=llm_mapper,
+        )
+        window_start, window_end, notes = read_project_window(value_wb)
+    except BudgetExtractionError as exc:
+        raise GanttReviewRequiredError(str(exc)) from exc
     finally:
-        source_wb.close()
+        value_wb.close()
 
-    source_rows = rows
-    material_process_mode = detect_material_process_budget(source_rows)
-    rows, llm_notes = apply_llm_plan(
-        rows,
-        workbook_name=source_file_name,
-        sheet_name=selected_sheet,
-        header_row=header_row,
-        options=llm_options or LlmOptions(enabled=False),
-        budget_structure="material_process" if material_process_mode else "activity_based",
+    extraction.assessment.warnings.extend(mapping_notes)
+    notes.extend(mapping_notes)
+    notes.append(
+        "La lógica LLM de clasificación se conserva para otros módulos, "
+        "pero no filtra ni reordena las filas del Gantt."
     )
-    notes.extend(llm_notes)
-    if material_process_mode:
-        rows, material_notes = enforce_material_process_rows(rows, source_rows)
-        notes.extend(material_notes)
-    rows, filter_notes = filter_cronogram_rows(rows)
-    notes.extend(filter_notes)
-
     identity = derive_project_identity(source_file_name)
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Gantt_Diario"
-    style_base_sheet(ws)
+    has_cc = bool(extraction.column_mapping.get("cc"))
+    headers = gantt_headers(has_cc)
 
-    ws["A1"] = "AUTOSYS - GANTT WORKING"
-    ws["A1"].font = Font(bold=True, size=14, color="1F3864")
-    ws["A2"] = f"Proyecto: {identity.project_id} - {identity.project_name}"
-    ws["A3"] = f"Presupuesto fuente: {source_file_name}"
-    ws["A4"] = "Las fechas por actividad quedan vacias para que las complete el ingeniero residente."
+    wb = load_workbook(input_path, data_only=False, read_only=False, keep_links=True)
+    try:
+        _link_source_formulas(extraction, wb[selected_sheet])
+        ws = _prepare_gantt_sheet(wb)
+        calendar_start_column = len(headers) + 1
+        calendar_end_column = _calendar_headers(
+            ws,
+            window_start,
+            window_end,
+            calendar_start_column,
+        )
+        activity_rows, data_end_row = _write_gantt_rows(
+            ws,
+            extraction,
+            headers,
+            calendar_start_column,
+            calendar_end_column,
+        )
+        _style_gantt_sheet(
+            ws,
+            identity,
+            source_file_name,
+            headers,
+            calendar_end_column,
+            data_end_row,
+        )
+        _add_gantt_validations_and_bars(
+            ws,
+            activity_rows,
+            headers,
+            calendar_start_column,
+            calendar_end_column,
+        )
+        _metadata_sheet(
+            wb,
+            identity,
+            source_file_name,
+            selected_sheet,
+            notes,
+        )
+        _assessment_sheet(wb, extraction)
+        wb.calculation.calcMode = "auto"
+        wb.calculation.fullCalcOnLoad = True
+        wb.calculation.forceFullCalc = True
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        wb.save(output_path)
+    finally:
+        wb.close()
 
-    calendar_end_col = write_daily_headers(ws, window_start, window_end)
-    data_end, activity_rows = write_budget_rows(ws, rows, calendar_end_col)
-    add_validations(ws, activity_rows)
-    add_bar_formatting(ws, activity_rows, calendar_end_col)
-    write_metadata_sheet(wb, identity, source_file_name, selected_sheet, notes)
-
-    wb.calculation.calcMode = "auto"
-    wb.calculation.fullCalcOnLoad = True
-    wb.calculation.forceFullCalc = True
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    wb.save(output_path)
-    wb.close()
+    validation = validate_generated_gantt(output_path, extraction, has_cc)
+    extraction.assessment.validation = validation
+    validated_wb = load_workbook(output_path, data_only=False, read_only=False)
+    try:
+        _assessment_sheet(validated_wb, extraction, validation)
+        validated_wb.save(output_path)
+    finally:
+        validated_wb.close()
+    validation = validate_generated_gantt(output_path, extraction, has_cc)
 
     return BuildResult(
         output_path=output_path,
         selected_sheet=selected_sheet,
-        header_row=header_row,
-        rows_written=len(rows),
-        review_rows=sum(1 for row in rows if row.requires_review),
+        header_row=extraction.header_row,
+        rows_written=sum(1 for row in extraction.rows if row.row_type == "activity"),
+        review_rows=len(extraction.assessment.ambiguous_rows),
         window_start=window_start,
         window_end=window_end,
         notes=notes,
+        validation=validation,
     )
