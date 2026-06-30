@@ -239,6 +239,13 @@ def list_queue_items(token: str, site_id: str, list_id: str, top: int) -> list[d
     return data.get("value") or []
 
 
+def get_queue_item(token: str, site_id: str, list_id: str, item_id: str) -> dict[str, Any]:
+    return graph_get(
+        token,
+        f"{GRAPH_BASE}/sites/{site_id}/lists/{list_id}/items/{item_id}?expand=fields",
+    )
+
+
 def item_status(item: dict[str, Any]) -> str:
     fields = item.get("fields") or {}
     return str(fields.get("Estado") or "").strip()
@@ -619,11 +626,13 @@ def main() -> int:
     print_summary(site, queue_list, items)
 
     if args.item_id.strip():
-        pending = [item for item in items if str(item.get("id") or "") == args.item_id.strip()]
-        if not pending:
-            raise RuntimeError(
-                f"No se encontro el item de cola {args.item_id.strip()} entre los {len(items)} items leidos."
-            )
+        manual_item = get_queue_item(
+            token,
+            site["id"],
+            queue_list["id"],
+            args.item_id.strip(),
+        )
+        pending = [manual_item]
         if item_event_type(pending[0]).casefold() != "presupuesto_aprobado":
             raise RuntimeError(
                 f"El item de cola {args.item_id.strip()} no es EventType=presupuesto_aprobado."
