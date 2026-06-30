@@ -1,15 +1,20 @@
-# GitHub Actions: procesador de cola de SharePoint
+# GitHub Actions: dispatcher de automatización SharePoint
 
 ## Workflow principal
 
-- Nombre en Actions: `Process SharePoint Queue`
-- Archivo: `.github/workflows/sistema1-poll-queue.yml`
-- Rama predeterminada del repositorio: `feature/power-automate-sistema1-flows`
+- Nombre en Actions: `SharePoint Automation Dispatcher`
+- Archivo: `.github/workflows/automation-dispatcher.yml`
 - Python: `3.11`
 
 El workflow hace checkout, instala `requirements.txt`, ejecuta un sanity check del
-entrypoint y procesa los eventos `Pendiente` con
-`EventType = presupuesto_aprobado` de `Cola_Automatizacion_Proyectos`.
+entrypoint y ejecuta en orden:
+
+1. Sistema 1 para eventos `presupuesto_aprobado`.
+2. Sistema 2 para asignación, tracking y eventos
+   `gantt_working_modificado`.
+
+Un error de Sistema 1 no impide que Sistema 2 haga su revisión, aunque el job
+termina con error para que la falla siga siendo visible.
 
 El destino de proyectos activos queda limitado a `/Proyectos/Proyectos Activos/`. El
 procesador rechaza una configuración que apunte a
@@ -17,11 +22,11 @@ procesador rechaza una configuración que apunte a
 
 ## Ejecución automática y manual
 
-GitHub Actions evalúa la cola cada 15 minutos con:
+GitHub Actions evalúa la automatización una vez por hora con:
 
 ```yaml
 schedule:
-  - cron: "7,22,37,52 * * * *"
+  - cron: "17 * * * *"
 ```
 
 GitHub puede demorar algunos minutos una ejecución programada. Power Automate no
@@ -31,14 +36,14 @@ Para probarlo manualmente:
 
 1. Abrir el repositorio en GitHub.
 2. Ir a **Actions**.
-3. Seleccionar **Process SharePoint Queue**.
+3. Seleccionar **SharePoint Automation Dispatcher**.
 4. Elegir **Run workflow**.
 5. Seleccionar la rama que contiene el workflow y pulsar **Run workflow**.
 
 También puede ejecutarse con GitHub CLI:
 
 ```bash
-gh workflow run sistema1-poll-queue.yml --ref feature/power-automate-sistema1-flows -f top=50 -f max_items=5
+gh workflow run automation-dispatcher.yml --ref feature/gantt-assignment-tracking -f top=50 -f max_items=5
 ```
 
 Para reprocesar manualmente un item específico que ya esté marcado como
@@ -60,23 +65,23 @@ heredado `MS_GRAPH_CLIENT_SECRET` como respaldo de `MS_CLIENT_SECRET`; el nombre
 canónico nuevo debe configurarse y el heredado puede retirarse después.
 
 Las variables no secretas de SharePoint (`SP_SITE_HOSTNAME`, `SP_SITE_PATH`,
-`SP_QUEUE_LIST_NAME` y los IDs opcionales de listas) siguen configurándose como
-GitHub Actions Variables.
+`SP_QUEUE_LIST_NAME`, `SP_CONTROL_LIST_NAME` y los IDs opcionales de listas)
+siguen configurándose como GitHub Actions Variables.
 
 ## Comando ejecutado
 
 El entrypoint real del repositorio es:
 
 ```bash
-python scripts/sistema1_poll_queue.py --top 50 --max-items 5 --process
+python src/automation_dispatcher.py --top 50 --max-items 5
 ```
 
-No se creó un entrypoint paralelo ni se cambió la lógica del generador de Gantts.
+El dispatcher reutiliza el entrypoint funcional de Sistema 1 y añade Sistema 2.
+No reescribe la lógica del generador.
 
 ## Resultados y errores comunes
 
-- **Cola vacía:** termina exitosamente y registra
-  `No pending events found. No hay eventos pendientes para procesar.`
+- **Colas/listas sin trabajo:** termina exitosamente con contadores en cero.
 - **Missing required GitHub Secrets:** falta al menos uno de los cuatro secrets.
   Configurarlo y volver a ejecutar manualmente.
 - **No se pudo obtener token Microsoft Graph:** revisar tenant, client ID, client
@@ -94,6 +99,11 @@ por elemento se guarda como `Error`; no se marca ese elemento como `Procesado`.
 Para consultar ejecuciones:
 
 ```bash
-gh run list --workflow sistema1-poll-queue.yml --limit 10
+gh run list --workflow automation-dispatcher.yml --limit 10
 gh run view <run-id> --log
 ```
+
+El cron de GitHub no tiene garantía de hora exacta y puede retrasarse. Si el
+schedule por hora dejara de dispararse de forma sostenida, el fallback diario
+documentado —pero no activo— es `17 12 * * *`. La ejecución manual sirve para
+separar un problema de scheduling de un fallo del dispatcher.

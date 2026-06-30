@@ -4,7 +4,7 @@ Las listas ya existen manualmente. Este documento define los nombres y valores q
 
 ## Cola_Automatizacion_Proyectos
 
-Funcion: cola tecnica de eventos que Python/GitHub Actions procesara cada 15 minutos.
+Funcion: cola tecnica de eventos que Python/GitHub Actions procesa cada hora.
 
 | Columna | Tipo recomendado | Requerida | Uso |
 |---|---|---:|---|
@@ -26,6 +26,7 @@ Funcion: cola tecnica de eventos que Python/GitHub Actions procesara cada 15 min
 ### Valores permitidos de EventType
 
 - `presupuesto_aprobado`
+- `gantt_working_modificado`
 
 ### Valores permitidos de Estado
 
@@ -59,6 +60,22 @@ Funcion: seguimiento humano del Gantt WORKING generado por Python.
 | `Advertencia1Enviada` | Yes/No | Si | Control de advertencia dia 3. |
 | `Advertencia2Enviada` | Yes/No | Si | Control de advertencia dia 6. |
 | `Notas` | Multiple lines of text | No | Observaciones humanas/tecnicas. |
+| `GanttWorkingIdentifier` | Single line of text | No | Identificador estable del Gantt. |
+| `PresupuestoIdentifier` | Single line of text | No | Identificador estable del presupuesto. |
+| `SupervisoresEmail` | Multiple lines of text | No | Correos separados por punto y coma. |
+| `PermisoGanttOtorgado` | Yes/No | Si | Evita repetir el permiso. |
+| `FechaPermisoOtorgado` | Date and time | No | Fecha del permiso de edicion. |
+| `CorreoAsignacionEnviado` | Yes/No | Si | Confirmacion de Power Automate. |
+| `FechaCorreoAsignacion` | Date and time | No | Fecha confirmada del correo. |
+| `FechaAdvertencia1` | Date and time | No | Fecha confirmada del primer aviso. |
+| `FechaAdvertencia2` | Date and time | No | Fecha confirmada del segundo aviso. |
+| `VencimientoNotificado` | Yes/No | Si | Evita repetir escalamiento. |
+| `FechaVencimientoNotificado` | Date and time | No | Fecha confirmada del escalamiento. |
+| `UltimoTrackingRun` | Date and time | No | Ultima revision del dispatcher. |
+| `TrackingIntentos` | Number | Si | Intentos fallidos de asignacion/tracking. |
+| `UltimoErrorTracking` | Multiple lines of text | No | Ultimo error accionable. |
+| `StatusExcel` | Single line of text | No | Ultimo status leido de Datos. |
+| `FechaLecturaStatusExcel` | Date and time | No | Momento de lectura del status. |
 
 ### Valores permitidos de EstadoGantt
 
@@ -70,10 +87,29 @@ Funcion: seguimiento humano del Gantt WORKING generado por Python.
 - `Vencido`
 - `Requiere revisión manual`
 
+## Cola_Notificaciones_Gantt
+
+Funcion: cola idempotente para que Power Automate envie correos con Outlook.
+
+| Columna | Tipo recomendado | Uso |
+|---|---|---|
+| `Title` | Single line of text | Nombre visible. |
+| `ProyectoID` | Single line of text | Proyecto relacionado. |
+| `TipoNotificacion` | Choice | Asignacion, avisos o vencimiento. |
+| `EstadoNotificacion` | Choice | `Pendiente`, `Enviado` o `Error`. |
+| `To` / `Cc` | Multiple lines of text | Destinatarios. |
+| `Subject` | Single line of text | Asunto. |
+| `Body` | Multiple lines of text | Cuerpo. |
+| `RelatedControlItemID` | Single line of text | ID del control relacionado. |
+| `Intentos` | Number | Intentos del flujo. |
+| `UltimoError` | Multiple lines of text | Error de Outlook/SharePoint. |
+| `FechaCreacion` / `FechaEnvio` | Date and time | Auditoria. |
+| `Notas` | Multiple lines of text | Observaciones. |
+
 ## Reglas generales
 
 - No usar Power BI.
 - No usar HTTP premium hacia GitHub.
 - No tocar `/Proyectos/PROYECTOS TERMINADOS/`.
 - Power Automate registra y notifica; Python procesa.
-- GitHub Actions revisa la cola cada 15 minutos.
+- GitHub Actions ejecuta el dispatcher una vez por hora.

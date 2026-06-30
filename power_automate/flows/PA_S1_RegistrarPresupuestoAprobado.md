@@ -8,7 +8,8 @@ Registrar en `Cola_Automatizacion_Proyectos` cada presupuesto aprobado nuevo que
 /Proyectos/presupuestos aprobados/
 ```
 
-Este flujo no llama a GitHub. GitHub Actions procesara la cola en su siguiente ejecucion programada de 15 minutos.
+Este flujo no llama a GitHub. GitHub Actions procesara la cola en su siguiente
+ejecucion programada por hora o en una ejecucion manual.
 
 ## Tipo
 

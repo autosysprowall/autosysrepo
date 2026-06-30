@@ -1,19 +1,21 @@
 # Power Automate - Sistema 1
 
-Esta carpeta documenta la arquitectura inicial de Power Automate para el Sistema 1 de Autosys: registrar presupuestos aprobados, dar seguimiento humano al Gantt WORKING y dejar que GitHub Actions/Python procese la cola cada 15 minutos.
+Esta carpeta documenta Power Automate para Autosys. Sistema 1 registra
+presupuestos aprobados. Sistema 2 registra modificaciones del Gantt WORKING y
+envía las notificaciones decididas por Python.
 
 Power Automate no genera Gantts, no llama a GitHub y no usa Power BI. Su rol es registrar eventos, notificar personas y actualizar estados humanos.
 
 ## Alcance
 
-Sistema 1 cubre:
+Los sistemas cubren:
 
 - deteccion de presupuestos nuevos en `/Proyectos/presupuestos aprobados/`;
 - registro de eventos en `Cola_Automatizacion_Proyectos`;
-- notificacion cuando un Gantt queda asignado a un ingeniero;
-- advertencias dia 3 y dia 6;
+- cola idempotente de notificaciones;
+- correo de asignacion, advertencias dia 3 y dia 6;
 - vencimiento/escalamiento dia 9;
-- registro de envio a revision inicial.
+- registro de modificaciones para leer el status del Excel.
 
 Fuera de alcance:
 
@@ -55,6 +57,8 @@ El esquema esperado esta documentado en [specs/sharepoint_lists_expected_schema.
 | `PA_S1_NotificarGanttAsignado` | Automated cloud flow | Notifica al ingeniero cuando un Gantt WORKING queda asignado. |
 | `PA_S1_AdvertenciasGantt` | Scheduled cloud flow | Envia advertencias dia 3 y 6, y vence/escalona dia 9. |
 | `PA_S1_GanttEnRevision` | Automated cloud flow | Registra fecha de envio a revision inicial y dias usados. |
+| `PA_S2_EnviarNotificacionesGantt` | Automated cloud flow | Envia items pendientes de la cola de notificaciones y confirma flags. |
+| `PA_S2_GanttWorkingModificado_A_Cola` | Automated cloud flow | Registra modificaciones del Gantt para lectura por Python. |
 
 Documentacion nodo por nodo:
 
@@ -62,6 +66,10 @@ Documentacion nodo por nodo:
 - [flows/PA_S1_NotificarGanttAsignado.md](flows/PA_S1_NotificarGanttAsignado.md)
 - [flows/PA_S1_AdvertenciasGantt.md](flows/PA_S1_AdvertenciasGantt.md)
 - [flows/PA_S1_GanttEnRevision.md](flows/PA_S1_GanttEnRevision.md)
+- [Definicion completa de los flujos de Sistema 2](../docs/power_automate_tracking_flows.md)
+
+Los tres flujos S1 de correo/tracking quedan como referencia historica y no
+deben activarse junto con Sistema 2, porque duplicarian correos o estados.
 
 Contenido dinamico y expresiones:
 
@@ -71,14 +79,15 @@ Contenido dinamico y expresiones:
 
 Power Automate solo registra eventos en `Cola_Automatizacion_Proyectos`.
 
-GitHub Actions debe correr por horario cada 15 minutos y Python debe leer los items `Pendiente`.
+GitHub Actions corre por horario cada hora y Python lee los items `Pendiente`,
+ademas de revisar asignaciones y vencimientos.
 
 Ejemplo:
 
 ```yaml
 on:
   schedule:
-    - cron: "7,22,37,52 * * * *"
+    - cron: "17 * * * *"
   workflow_dispatch:
 ```
 
@@ -109,6 +118,7 @@ Recomendacion para construccion:
 2. Validar sitio, biblioteca y lista en ambiente controlado.
 3. Probar con un archivo `.xlsx` de prueba fuera de produccion operativa.
 4. Activar solo cuando Python/GitHub Actions ya pueda procesar la cola.
+5. Mantener apagados los flujos S1 antiguos de correo, advertencias y revision.
 
 ## Seguridad
 

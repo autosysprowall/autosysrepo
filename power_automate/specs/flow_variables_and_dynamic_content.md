@@ -133,7 +133,7 @@ Ejemplo de schedule:
 ```yaml
 on:
   schedule:
-    - cron: "7,22,37,52 * * * *"
+    - cron: "17 * * * *"
   workflow_dispatch:
 ```
 

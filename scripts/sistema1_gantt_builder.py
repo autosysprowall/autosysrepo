@@ -968,6 +968,7 @@ def write_metadata_sheet(wb, identity: ProjectIdentity, source_file: str, select
         ("ArchivoPresupuesto", source_file),
         ("HojaPresupuestoUsada", selected_sheet),
         ("Notas", " | ".join(notes)),
+        ("EstadoGantt", "En progreso"),
     ]
     for row_idx, (label, value) in enumerate(rows, start=1):
         ws.cell(row_idx, 1).value = label
@@ -975,6 +976,13 @@ def write_metadata_sheet(wb, identity: ProjectIdentity, source_file: str, select
         ws.cell(row_idx, 2).value = value
     ws.column_dimensions["A"].width = 28
     ws.column_dimensions["B"].width = 90
+    status_validation = DataValidation(
+        type="list",
+        formula1='"En progreso,En revisión inicial"',
+        allow_blank=False,
+    )
+    ws.add_data_validation(status_validation)
+    status_validation.add("B6")
     ws.freeze_panes = None
 
 

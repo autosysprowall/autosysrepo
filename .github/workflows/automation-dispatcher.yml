@@ -1,8 +1,8 @@
-name: Process SharePoint Queue
+name: SharePoint Automation Dispatcher
 
 on:
   schedule:
-    - cron: "7,22,37,52 * * * *"
+    - cron: "17 * * * *"
   workflow_dispatch:
     inputs:
       top:
@@ -22,12 +22,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: sharepoint-queue-processor
+  group: sharepoint-automation-dispatcher
   cancel-in-progress: false
 
 jobs:
   process:
-    name: Process Cola_Automatizacion_Proyectos
+    name: Dispatch Sistema 1 and Sistema 2
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -46,8 +46,8 @@ jobs:
           python -m pip install --disable-pip-version-check -r requirements.txt
           python -m pip check
 
-      - name: Sanity check queue processor
-        run: python scripts/sistema1_poll_queue.py --help
+      - name: Sanity check dispatcher
+        run: python src/automation_dispatcher.py --help
 
       - name: Validate required secrets
         env:
@@ -68,7 +68,7 @@ jobs:
           fi
           echo "Required secrets are configured."
 
-      - name: Process SharePoint queue
+      - name: Run SharePoint automation dispatcher
         env:
           MS_GRAPH_TENANT_ID: ${{ secrets.MS_TENANT_ID }}
           MS_GRAPH_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
@@ -84,8 +84,7 @@ jobs:
           OPENAI_ACTIVITY_PLANNER_MODE: ${{ vars.OPENAI_ACTIVITY_PLANNER_MODE || 'live' }}
           OPENAI_ACTIVITY_PLANNER_MODEL: ${{ vars.OPENAI_ACTIVITY_PLANNER_MODEL || 'gpt-4o-mini' }}
         run: |
-          python scripts/sistema1_poll_queue.py \
+          python src/automation_dispatcher.py \
             --top "${{ github.event.inputs.top || '50' }}" \
             --max-items "${{ github.event.inputs.max_items || '5' }}" \
-            --item-id "${{ github.event.inputs.item_id || '' }}" \
-            --process
+            --item-id "${{ github.event.inputs.item_id || '' }}"

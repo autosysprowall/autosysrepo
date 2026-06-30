@@ -385,6 +385,8 @@ def upsert_control_assignment(
     source_web_url: str,
     gantt_web_url: str,
     notes: str,
+    budget_identifier: str = "",
+    gantt_identifier: str = "",
 ) -> str:
     columns = list_columns(token, site_id, control_list["id"])
     field_map = build_field_map(columns)
@@ -397,6 +399,8 @@ def upsert_control_assignment(
         (("EstadoGantt", "EstadoGannt"), "Pendiente de asignación"),
         (("FechaGanttGenerado",), datetime.now(timezone.utc).date().isoformat()),
         (("Notas",), notes),
+        (("PresupuestoIdentifier",), budget_identifier),
+        (("GanttWorkingIdentifier",), gantt_identifier),
     ]
     for candidates, value in assignments:
         field_name = pick_field(field_map, candidates)
@@ -406,20 +410,6 @@ def upsert_control_assignment(
     if not fields:
         raise RuntimeError("No se pudo mapear ningun campo de Control_Gantt_Asignaciones.")
 
-    existing = find_control_item_by_project(token, site_id, control_list["id"], identity_project_id)
-    if existing:
-        graph_patch(
-            token,
-            f"{GRAPH_BASE}/sites/{site_id}/lists/{control_list['id']}/items/{existing['id']}/fields",
-            fields,
-        )
-        return str(existing.get("id") or "")
-
-    created = graph_post(
-        token,
-        f"{GRAPH_BASE}/sites/{site_id}/lists/{control_list['id']}/items",
-        {"fields": fields},
-    )
     link_fields: dict[str, Any] = {}
     for candidates, value in (
         (("PresupuestoLink",), source_web_url),
@@ -428,6 +418,30 @@ def upsert_control_assignment(
         field_name = pick_field(field_map, candidates)
         if field_name and value:
             link_fields[field_name] = value
+
+    existing = find_control_item_by_project(token, site_id, control_list["id"], identity_project_id)
+    if existing:
+        graph_patch(
+            token,
+            f"{GRAPH_BASE}/sites/{site_id}/lists/{control_list['id']}/items/{existing['id']}/fields",
+            fields,
+        )
+        if link_fields:
+            try:
+                graph_patch(
+                    token,
+                    f"{GRAPH_BASE}/sites/{site_id}/lists/{control_list['id']}/items/{existing['id']}/fields",
+                    link_fields,
+                )
+            except RuntimeError:
+                pass
+        return str(existing.get("id") or "")
+
+    created = graph_post(
+        token,
+        f"{GRAPH_BASE}/sites/{site_id}/lists/{control_list['id']}/items",
+        {"fields": fields},
+    )
     if link_fields:
         try:
             graph_patch(
@@ -541,6 +555,8 @@ def process_queue_item(
                     source_web_url=budget_url or source_url,
                     gantt_web_url=gantt_url,
                     notes="Creado automaticamente por GitHub Actions Sistema 1.",
+                    budget_identifier=str(budget_upload.get("id") or source_item.get("id") or ""),
+                    gantt_identifier=str(gantt_upload.get("id") or ""),
                 )
                 control_note = f" Control_Gantt_Asignaciones item={control_id}."
             except Exception as exc:
