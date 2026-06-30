@@ -1892,12 +1892,20 @@ def build_gantt_workbook(
                     model=options.model or None,
                 )
                 mapping_notes.append(
-                    "LLM usado solamente como fallback de mapping de columnas faltantes."
+                    "LLM usado solamente para validar o completar el mapping de columnas."
+                )
+                print(
+                    "LLM column validation completed for "
+                    f"{sheet_name}: requested={','.join(missing_fields)}"
                 )
                 return result
             except Exception as exc:
                 mapping_notes.append(
                     f"Fallback LLM de columnas falló; no se forzó mapping: {exc}"
+                )
+                print(
+                    "WARNING: LLM column validation failed; deterministic mapping "
+                    f"was retained: {exc}"
                 )
                 return {}
 
