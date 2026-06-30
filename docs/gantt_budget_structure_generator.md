@@ -96,6 +96,12 @@ no escribe el Excel.
 
 También se detectan encabezados repetidos dentro de una misma hoja. Cada bloque
 puede cambiar el orden de columnas sin desplazar Unidad, Cantidad o Costos.
+Cuando coexisten columnas comerciales y de venta, `C. Unitario`/`C. Total`
+tienen prioridad sobre `P.U.`/`Precio` y sobre columnas resumen posteriores.
+
+Si la tabla tiene filtro o tabla de Excel, su última fila define el límite de
+extracción. Esto evita incorporar comparativos, catálogos o tablas auxiliares
+ubicadas debajo del presupuesto.
 
 ## Estructura reutilizable
 
@@ -138,9 +144,14 @@ de caja, análisis comercial, comparación de presupuestos y reportes.
   `section`.
 - Las secciones mantienen el orden, se combinan hasta el final del calendario y
   alinean el texto a la derecha.
-- Las filas vacías se ignoran.
-- Totales, subtotales, ITBMS, utilidad, administración, descuento y resúmenes
+- Las filas vacías dentro de la tabla se conservan como `spacer` para mantener
+  la separación visual entre grupos.
+- Totales, subtotales, ITBMS, utilidad, descuento y resúmenes
   `Costo/<unidad>` o `Precio/<unidad>` no se convierten en actividades.
+- `Administración` se conserva cuando es una partida o encabezado agrupador
+  dentro de la tabla comercial.
+- Etiquetas formadas únicamente por números se descartan como residuos de
+  fórmulas o resúmenes, no como secciones.
 - Las filas ambiguas se preservan como sección y se registran en `Assessment`.
 
 ## Preservación de costos
@@ -149,15 +160,18 @@ de caja, análisis comercial, comparación de presupuestos y reportes.
 - Si `Costo Total` falta y existen Cantidad y Costo Unitario, se calcula.
 - Si el total fuente difiere más de 2% del cálculo, se conserva el total fuente
   y se registra una advertencia.
-- Si una cantidad o costo es una fórmula del presupuesto, el Gantt crea un
-  vínculo a la celda fuente dentro del mismo workbook, por ejemplo:
+- Si una cantidad o costo es una fórmula con un valor calculado disponible, el
+  Gantt materializa ese valor numérico. Así no depende de vínculos externos ni
+  de la caché de cálculo que `openpyxl` elimina al guardar.
+- Solo cuando la fuente no contiene ningún valor calculado disponible se usa
+  como último recurso un vínculo a la celda fuente, por ejemplo:
 
 ```excel
 ='PRESUPUESTO FLEXIO'!H13
 ```
 
-Esto evita perder costos cuando `openpyxl` no encuentra un valor calculado en
-la caché del archivo y conserva la relación funcional con el presupuesto.
+Esto evita columnas vacías en SharePoint/Excel Online y mantiene el vínculo
+únicamente para presupuestos que no ofrecen otra representación del valor.
 
 ## Calendario
 
@@ -189,6 +203,17 @@ Se conserva el contrato visual del Gantt diario existente:
 Además, el output parte del workbook del presupuesto, por lo que mantiene sus
 hojas, fórmulas, estilos, validaciones y metadatos. Solo `Gantt` y `Assessment`
 son áreas controladas por el generador.
+
+En las filas del Gantt se copian desde la fila original:
+
+- colores y sombreados por columna;
+- negrita y formato de agrupadores;
+- formato monetario original, incluido `B/.`;
+- altura de fila;
+- filas separadoras entre grupos.
+
+El calendario hereda el sombreado de la celda `Actividad`, por lo que los
+grupos siguen siendo visibles a lo ancho de todo el cronograma.
 
 ## Hoja Assessment
 
@@ -241,8 +266,11 @@ actualiza el evento a `RequiereRevision`.
 - fallback LLM limitado a columnas existentes;
 - ausencia de CC;
 - duración en semanas y prioridad de Fecha Final;
-- fórmulas de costos enlazadas;
-- formato, colores, validaciones, barras y secciones combinadas;
+- fórmulas sin caché enlazadas solo como fallback;
+- prioridad de `C. Unitario`/`C. Total` frente a columnas de precio;
+- límite de tabla para excluir bloques auxiliares posteriores;
+- formato, colores originales, alturas, separadores, validaciones, barras y
+  secciones combinadas;
 - rechazo de un presupuesto sin encabezado confiable.
 
 También se ejecutó una regresión local, sin modificar ni subir archivos, sobre

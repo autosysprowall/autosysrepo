@@ -136,8 +136,14 @@ class BudgetExtractionTests(unittest.TestCase):
             source_file="sections.xlsx",
             source_sheet=ws.title,
         )
-        self.assertEqual(["section", "activity"], [row.row_type for row in result.rows])
-        self.assertEqual(["OBRA CIVIL", "Excavación"], [row.actividad for row in result.rows])
+        self.assertEqual(
+            ["section", "spacer", "activity"],
+            [row.row_type for row in result.rows],
+        )
+        self.assertEqual(
+            ["OBRA CIVIL", "", "Excavación"],
+            [row.actividad for row in result.rows],
+        )
         reasons = {item["reason"] for item in result.assessment.ignored_rows}
         self.assertIn("empty", reasons)
         self.assertIn("total", reasons)
@@ -371,6 +377,123 @@ class GanttWorkbookTests(unittest.TestCase):
                 self.assertEqual("='Presupuesto'!F3", ws.cell(DATA_START_ROW, 9).value)
             finally:
                 wb.close()
+
+    def test_flexio_costs_styles_spacers_and_table_boundary_are_preserved(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "2025-135 Escuela Santa Cecilia.xlsx"
+            output = root / "2025-135_gantt_WORKING.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "PRESUPUESTO FLEXIO"
+            ws.append(
+                [
+                    "Actividad",
+                    "Unidad",
+                    "Cantidad",
+                    "C. Unitario",
+                    "C. Total",
+                    "P.U.",
+                    "COSTO TOTAL",
+                ]
+            )
+            ws.append(
+                [
+                    "Administracion",
+                    "m2",
+                    4436.5,
+                    32.72,
+                    145184.23,
+                    39.65,
+                    175934.67,
+                ]
+            )
+            ws.append([])
+            ws.append(
+                [
+                    "Suministro",
+                    "m2",
+                    3793.24,
+                    32,
+                    121383.68,
+                    None,
+                    121383.68,
+                ]
+            )
+            for _ in range(5):
+                ws.append([])
+            ws.append(["PROYECTO", "Area", 2, 74.36, 148.72, None, None])
+            ws.auto_filter.ref = "A1:A4"
+            ws.row_dimensions[2].height = 23.25
+            gray = PatternFill("solid", fgColor="D0D0D0")
+            pink = PatternFill("solid", fgColor="F2CEEF")
+            ws["A2"].fill = gray
+            ws["A2"].font = Font(bold=True)
+            ws["D2"].fill = pink
+            ws["D2"].font = Font(bold=True)
+            ws["E2"].fill = gray
+            ws["E2"].font = Font(bold=True)
+            currency_format = (
+                '" "[$B/.-180A]* #,##0.00" ";"-"[$B/.-180A]* #,##0.00'
+            )
+            ws["D2"].number_format = currency_format
+            ws["E2"].number_format = currency_format
+            add_datos(wb)
+            wb.save(source)
+            wb.close()
+
+            build_gantt_workbook(source, output, source.name, LlmOptions(enabled=False))
+            generated = load_workbook(output, data_only=False)
+            try:
+                gantt = generated["Gantt"]
+                headers = {
+                    gantt.cell(HEADER_ROW, column).value: column
+                    for column in range(1, 9)
+                }
+                self.assertEqual(
+                    32.72,
+                    gantt.cell(DATA_START_ROW, headers["Costo Unitario"]).value,
+                )
+                self.assertEqual(
+                    145184.23,
+                    gantt.cell(DATA_START_ROW, headers["Costo Total"]).value,
+                )
+                self.assertEqual(
+                    "00F2CEEF",
+                    gantt.cell(
+                        DATA_START_ROW,
+                        headers["Costo Unitario"],
+                    ).fill.fgColor.rgb,
+                )
+                self.assertEqual(
+                    "00D0D0D0",
+                    gantt.cell(DATA_START_ROW, headers["Actividad"]).fill.fgColor.rgb,
+                )
+                self.assertEqual(
+                    currency_format,
+                    gantt.cell(
+                        DATA_START_ROW,
+                        headers["Costo Unitario"],
+                    ).number_format,
+                )
+                self.assertEqual(23.25, gantt.row_dimensions[DATA_START_ROW].height)
+                self.assertIsNone(gantt.cell(DATA_START_ROW + 1, 1).value)
+                self.assertEqual(
+                    "Suministro",
+                    gantt.cell(DATA_START_ROW + 2, 1).value,
+                )
+                activities = [
+                    gantt.cell(row, 1).value
+                    for row in range(DATA_START_ROW, gantt.max_row + 1)
+                ]
+                self.assertNotIn("PROYECTO", activities)
+                calendar_column = len(headers) + 1
+                self.assertEqual(
+                    "00D0D0D0",
+                    gantt.cell(DATA_START_ROW, calendar_column).fill.fgColor.rgb,
+                )
+            finally:
+                generated.close()
 
     def test_output_identity_uses_required_working_name(self) -> None:
         identity = derive_project_identity("2026-123 - Proyecto.xlsx")

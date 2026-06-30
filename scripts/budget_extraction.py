@@ -6,6 +6,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from openpyxl.utils.cell import range_boundaries
+
 
 ColumnMapper = Callable[[str, list[Any], tuple[str, ...]], dict[str, int | None]]
 
@@ -62,6 +64,7 @@ FIELD_ALIASES: dict[str, tuple[str, ...]] = {
         "volumen",
     ),
     "costo_unitario": (
+        "c unitario",
         "costo unitario",
         "precio unitario",
         "unitario",
@@ -73,6 +76,7 @@ FIELD_ALIASES: dict[str, tuple[str, ...]] = {
         "cu",
     ),
     "costo_total": (
+        "c total",
         "costo total",
         "precio total",
         "total",
@@ -94,7 +98,6 @@ TOTAL_LABELS = (
     "itbms",
     "resumen",
     "utilidad",
-    "administracion",
     "descuento",
 )
 NOTE_LABELS = ("nota", "notas", "observacion", "observaciones", "aclaracion")
@@ -213,7 +216,10 @@ def resolve_column_mapping(
             score, alias = _alias_score(header, FIELD_ALIASES[field_name])
             if score:
                 options.append((score, column_index, alias))
-        candidates[field_name] = sorted(options, reverse=True)
+        candidates[field_name] = sorted(
+            options,
+            key=lambda option: (-option[0], option[1]),
+        )
 
     mapping = {field_name: None for field_name in FIELDS}
     scores = {field_name: 0.0 for field_name in FIELDS}
@@ -375,6 +381,29 @@ def _total_or_note_kind(activity: str) -> str:
     return ""
 
 
+def _explicit_table_end_row(ws, header_row: int) -> int | None:
+    references: list[str] = []
+    if ws.auto_filter.ref:
+        references.append(str(ws.auto_filter.ref))
+    references.extend(str(table.ref) for table in ws.tables.values())
+    matching_ends: list[int] = []
+    for reference in references:
+        try:
+            _, min_row, _, max_row = range_boundaries(reference)
+        except (TypeError, ValueError):
+            continue
+        if min_row <= header_row <= max_row:
+            matching_ends.append(max_row)
+    return max(matching_ends) if matching_ends else None
+
+
+def _numeric_only_label(value: str) -> bool:
+    return coerce_number(value) is not None and not re.search(
+        r"[A-Za-zÁÉÍÓÚáéíóúÑñ]",
+        value,
+    )
+
+
 def extract_budget_structure(
     ws,
     *,
@@ -419,13 +448,27 @@ def extract_budget_structure(
     rows: list[BudgetExtractedRow] = []
     current_mapping = dict(mapping)
     current_headers = list(candidate.headers)
-    for row_number in range(candidate.row_number + 1, ws.max_row + 1):
+    explicit_end_row = _explicit_table_end_row(ws, candidate.row_number)
+    scan_end_row = explicit_end_row or ws.max_row
+    consecutive_non_table_rows = 0
+    for row_number in range(candidate.row_number + 1, scan_end_row + 1):
         values = [
             ws.cell(row_number, column_number).value
             for column_number in range(1, ws.max_column + 1)
         ]
         if not any(display_text(value) for value in values):
             assessment.ignored_rows.append({"row_number": row_number, "reason": "empty"})
+            rows.append(
+                BudgetExtractedRow(
+                    row_number=row_number,
+                    row_type="spacer",
+                    level=0,
+                    actividad="",
+                )
+            )
+            consecutive_non_table_rows += 1
+            if explicit_end_row is None and consecutive_non_table_rows >= 8:
+                break
             continue
 
         row_mapping, _, _ = resolve_column_mapping(values)
@@ -439,6 +482,7 @@ def extract_budget_structure(
                     "mapping": dict(row_mapping),
                 }
             )
+            consecutive_non_table_rows = 0
             continue
 
         activity_column = int(current_mapping["actividad"] or 0)
@@ -450,6 +494,21 @@ def extract_budget_structure(
             assessment.ignored_rows.append(
                 {"row_number": row_number, "reason": "missing_activity"}
             )
+            consecutive_non_table_rows += 1
+            if explicit_end_row is None and consecutive_non_table_rows >= 8:
+                break
+            continue
+        if _numeric_only_label(activity):
+            assessment.ignored_rows.append(
+                {
+                    "row_number": row_number,
+                    "reason": "numeric_activity",
+                    "activity": activity,
+                }
+            )
+            consecutive_non_table_rows += 1
+            if explicit_end_row is None and consecutive_non_table_rows >= 8:
+                break
             continue
 
         excluded_kind = _total_or_note_kind(activity)
@@ -461,6 +520,7 @@ def extract_budget_structure(
                     "activity": activity,
                 }
             )
+            consecutive_non_table_rows += 1
             continue
 
         cc = _value(ws, row_number, current_mapping, "cc")
@@ -528,6 +588,10 @@ def extract_budget_structure(
                 warnings=warnings,
             )
         )
+        consecutive_non_table_rows = 0
+
+    while rows and rows[-1].row_type == "spacer":
+        rows.pop()
 
     if not any(row.row_type == "activity" for row in rows):
         assessment.warnings.append(

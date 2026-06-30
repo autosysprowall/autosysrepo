@@ -5,6 +5,7 @@ import io
 import json
 import re
 import unicodedata
+from copy import copy
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from hashlib import sha1
@@ -1190,6 +1191,8 @@ def _link_source_formulas(
         if row.row_type != "activity":
             continue
         for field_name in ("cantidad", "costo_unitario", "costo_total"):
+            if getattr(row, field_name) is not None:
+                continue
             coordinate = row.source_cells.get(field_name)
             if not coordinate:
                 continue
@@ -1198,17 +1201,39 @@ def _link_source_formulas(
                 continue
             setattr(row, field_name, f"='{escaped_sheet}'!{coordinate}")
             row.warnings.append(
-                f"{field_name} conserva la fórmula mediante vínculo a {source_ws.title}!{coordinate}."
+                f"{field_name} no tenía valor cacheado; conserva la fórmula como último "
+                f"recurso mediante vínculo a {source_ws.title}!{coordinate}."
             )
             linked += 1
     if linked:
         extraction.assessment.warnings.append(
-            f"Se preservaron {linked} valores calculados como vínculos a fórmulas del presupuesto."
+            f"Se usaron {linked} vínculos de fórmula solo donde el presupuesto no tenía "
+            "un valor numérico cacheado."
         )
+
+
+def _source_cell_for_field(source_ws, source_row, field_name: str | None):
+    if not field_name:
+        return None
+    coordinate = source_row.source_cells.get(field_name)
+    return source_ws[coordinate] if coordinate else None
+
+
+def _copy_source_appearance(target, source, *, copy_number_format: bool = False) -> None:
+    if source is None:
+        return
+    target.fill = copy(source.fill)
+    target.font = copy(source.font)
+    target.border = copy(source.border)
+    target.alignment = copy(source.alignment)
+    target.protection = copy(source.protection)
+    if copy_number_format:
+        target.number_format = source.number_format
 
 
 def _write_gantt_rows(
     ws,
+    source_ws,
     extraction: BudgetExtractionResult,
     headers: list[str],
     calendar_start_column: int,
@@ -1222,18 +1247,33 @@ def _write_gantt_rows(
         bottom=Side(style="thin", color="B7C9D8"),
     )
     section_fill = PatternFill("solid", fgColor="D9EAF7")
-    alternate_fill = PatternFill("solid", fgColor="F7FAFC")
-    warning_fill = PatternFill("solid", fgColor="FFF2CC")
     activity_rows: list[int] = []
     output_row = DATA_START_ROW
+    source_default_height = source_ws.sheet_format.defaultRowHeight or 15
 
     for source_row in extraction.rows:
+        source_height = (
+            source_ws.row_dimensions[source_row.row_number].height
+            or source_default_height
+        )
+        if source_row.row_type == "spacer":
+            ws.row_dimensions[output_row].height = source_height
+            output_row += 1
+            continue
         if source_row.row_type == "section":
+            source_activity_cell = _source_cell_for_field(
+                source_ws,
+                source_row,
+                "actividad",
+            )
             for column in range(1, calendar_end_column + 1):
                 cell = ws.cell(output_row, column)
                 cell.fill = section_fill
                 cell.font = Font(bold=True, color="1F3864")
                 cell.border = border
+                if source_activity_cell is not None:
+                    cell.fill = copy(source_activity_cell.fill)
+                    cell.font = copy(source_activity_cell.font)
             ws.merge_cells(
                 start_row=output_row,
                 start_column=1,
@@ -1249,7 +1289,7 @@ def _write_gantt_rows(
                 vertical="center",
                 wrap_text=True,
             )
-            ws.row_dimensions[output_row].height = 22
+            ws.row_dimensions[output_row].height = source_height
             output_row += 1
             continue
 
@@ -1288,26 +1328,55 @@ def _write_gantt_rows(
                 wrap_text=header == "Actividad",
                 indent=source_row.level if header == "Actividad" else 0,
             )
-            if len(activity_rows) % 2 == 0:
-                cell.fill = alternate_fill
-            if source_row.warnings:
-                cell.fill = warning_fill
+            field_name = {
+                "Actividad": "actividad",
+                "CC": "cc",
+                "Unidad": "unidad",
+                "Cantidad": "cantidad",
+                "Costo Unitario": "costo_unitario",
+                "Costo Total": "costo_total",
+            }.get(header)
+            source_cell = (
+                _source_cell_for_field(source_ws, source_row, field_name)
+                if field_name
+                else _source_cell_for_field(source_ws, source_row, "actividad")
+            )
+            _copy_source_appearance(
+                cell,
+                source_cell,
+                copy_number_format=header
+                in {"Cantidad", "Costo Unitario", "Costo Total"},
+            )
         for header in ("Fecha de Inicio", "Fecha de Fin"):
             ws.cell(output_row, indexes[header]).number_format = "dd/mm/yyyy"
-        for header in ("Cantidad",):
-            ws.cell(output_row, indexes[header]).number_format = "#,##0.00"
+        quantity_cell = ws.cell(output_row, indexes["Cantidad"])
+        if quantity_cell.number_format == "General":
+            quantity_cell.number_format = "#,##0.00"
         for header in ("Costo Unitario", "Costo Total"):
-            ws.cell(output_row, indexes[header]).number_format = '$#,##0.00;[Red]-$#,##0.00'
+            cost_cell = ws.cell(output_row, indexes[header])
+            if cost_cell.number_format == "General":
+                cost_cell.number_format = (
+                    '[$B/.-180A] #,##0.00;[Red]-[$B/.-180A] #,##0.00'
+                )
 
         calendar_border = Side(style="thin", color="E3E8EF")
+        source_activity_cell = _source_cell_for_field(
+            source_ws,
+            source_row,
+            "actividad",
+        )
         for column in range(calendar_start_column, calendar_end_column + 1):
             calendar_cell = ws.cell(output_row, column)
+            if source_activity_cell is not None:
+                calendar_cell.fill = copy(source_activity_cell.fill)
+                calendar_cell.font = copy(source_activity_cell.font)
             calendar_cell.border = Border(
                 left=calendar_border,
                 right=calendar_border,
                 top=calendar_border,
                 bottom=calendar_border,
             )
+        ws.row_dimensions[output_row].height = source_height
         output_row += 1
     return activity_rows, output_row - 1
 
@@ -1499,6 +1568,10 @@ def _assessment_sheet(
         (
             "Filas agrupadoras",
             sum(1 for row in extraction.rows if row.row_type == "section"),
+        ),
+        (
+            "Filas separadoras",
+            sum(1 for row in extraction.rows if row.row_type == "spacer"),
         ),
         ("Columnas faltantes", ", ".join(assessment.missing_columns) or "Ninguna"),
         ("LLM usado para mapping", "Sí" if assessment.llm_mapping_used else "No"),
@@ -1723,6 +1796,7 @@ def build_gantt_workbook(
         )
         activity_rows, data_end_row = _write_gantt_rows(
             ws,
+            wb[selected_sheet],
             extraction,
             headers,
             calendar_start_column,
