@@ -342,6 +342,17 @@ def is_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
+def is_numeric_unit(value: Any) -> bool:
+    if is_number(value):
+        return True
+    text = display_text(value, 40).replace(",", ".")
+    return bool(text and re.fullmatch(r"[-+]?\d+(?:\.\d+)?", text))
+
+
+def clean_unit_value(value: Any) -> Any:
+    return None if is_numeric_unit(value) else value
+
+
 def item_depth(value: Any) -> int:
     text = display_text(value, 40).strip(". ")
     if not text:
@@ -401,6 +412,36 @@ def fallback_description(ws, row_idx: int, preferred_col: int | None, ignored_co
     return max(candidates, key=len) if candidates else ""
 
 
+def resolve_budget_columns(headers: list[str]) -> dict[str, int | None]:
+    return {
+        "item": find_item_column(headers),
+        "code": find_column(headers, ("cc", "c.c", "codigo", "centro")),
+        "description": find_column(
+            headers,
+            ("actividad", "descripcion", "detalle", "concepto", "material", "partida"),
+        ),
+        "quantity": find_column(headers, ("cantidad", "cant", "qty", "volumen", "area")),
+        "unit": find_unit_column(headers),
+        "amount": find_column(headers, ("total", "subtotal", "monto", "importe", "valor")),
+    }
+
+
+def is_budget_header_row(headers: list[str], columns: dict[str, int | None]) -> bool:
+    desc_col = columns["description"]
+    unit_col = columns["unit"]
+    qty_col = columns["quantity"]
+    if not desc_col or not unit_col or not qty_col:
+        return False
+    desc_header = normalize_text(headers[desc_col - 1])
+    unit_header = normalize_text(headers[unit_col - 1])
+    qty_header = normalize_text(headers[qty_col - 1])
+    return (
+        any(term in desc_header for term in ("actividad", "descripcion", "detalle", "concepto", "partida"))
+        and any(term in unit_header for term in ("unidad", "und", "u/m"))
+        and any(term in qty_header for term in ("cantidad", "cant", "qty"))
+    )
+
+
 def extract_budget_rows(ws, header_row: int) -> list[BudgetRow]:
     headers = [display_text(ws.cell(header_row, col_idx).value, 80) for col_idx in range(1, ws.max_column + 1)]
     item_col = find_item_column(headers)
@@ -410,21 +451,41 @@ def extract_budget_rows(ws, header_row: int) -> list[BudgetRow]:
     unit_col = find_unit_column(headers)
     amount_col = find_column(headers, ("total", "subtotal", "monto", "importe", "valor"))
     ignored_cols = {col for col in (item_col, code_col, qty_col, unit_col, amount_col) if col}
+    columns = resolve_budget_columns(headers)
 
     rows: list[BudgetRow] = []
     for row_idx in range(header_row + 1, ws.max_row + 1):
         values = [ws.cell(row_idx, col_idx).value for col_idx in range(1, ws.max_column + 1)]
         if not any(is_non_empty(value) for value in values):
             continue
+        row_headers = [display_text(value, 80) for value in values]
+        row_columns = resolve_budget_columns(row_headers)
+        if is_budget_header_row(row_headers, row_columns):
+            columns = row_columns
+            continue
+        item_col = columns["item"]
+        code_col = columns["code"]
+        desc_col = columns["description"]
+        qty_col = columns["quantity"]
+        unit_col = columns["unit"]
+        amount_col = columns["amount"]
+        ignored_cols = {col for col in (item_col, code_col, qty_col, unit_col, amount_col) if col}
         description = fallback_description(ws, row_idx, desc_col, ignored_cols)
         if not description:
             continue
         item = value_at(ws, row_idx, item_col)
         code = value_at(ws, row_idx, code_col)
         quantity = value_at(ws, row_idx, qty_col)
-        unit = value_at(ws, row_idx, unit_col)
+        raw_unit = value_at(ws, row_idx, unit_col)
+        unit = clean_unit_value(raw_unit)
         amount = value_at(ws, row_idx, amount_col)
         line_type, requires_review, reason = classify_row(description, item, quantity, unit, amount)
+        if is_numeric_unit(raw_unit):
+            requires_review = True
+            reason = (
+                "El valor numerico detectado en la columna Unidad se omitio; "
+                "revisar el mapeo de columnas del presupuesto."
+            )
         rows.append(
             BudgetRow(
                 source_row=row_idx,
@@ -676,8 +737,8 @@ def write_daily_headers(ws, start: date, end: date) -> int:
     return DAILY_START_COL + days - 1
 
 
-def add_validations(ws, data_end: int) -> None:
-    if data_end < DATA_START_ROW:
+def add_validations(ws, activity_rows: list[int]) -> None:
+    if not activity_rows:
         return
     date_validation = DataValidation(
         type="date",
@@ -689,7 +750,8 @@ def add_validations(ws, data_end: int) -> None:
     date_validation.error = "Ingrese una fecha valida."
     date_validation.errorTitle = "Fecha invalida"
     ws.add_data_validation(date_validation)
-    date_validation.add(f"E{DATA_START_ROW}:F{data_end}")
+    for row_idx in activity_rows:
+        date_validation.add(f"E{row_idx}:F{row_idx}")
 
     status_validation = DataValidation(
         type="list",
@@ -697,11 +759,12 @@ def add_validations(ws, data_end: int) -> None:
         allow_blank=True,
     )
     ws.add_data_validation(status_validation)
-    status_validation.add(f"G{DATA_START_ROW}:G{data_end}")
+    for row_idx in activity_rows:
+        status_validation.add(f"G{row_idx}")
 
 
-def add_bar_formatting(ws, data_end: int, calendar_end_col: int) -> None:
-    if data_end < DATA_START_ROW:
+def add_bar_formatting(ws, activity_rows: list[int], calendar_end_col: int) -> None:
+    if not activity_rows:
         return
     first_col = get_column_letter(DAILY_START_COL)
     last_col = get_column_letter(calendar_end_col)
@@ -709,7 +772,7 @@ def add_bar_formatting(ws, data_end: int, calendar_end_col: int) -> None:
     invalid_fill = PatternFill(fill_type="solid", start_color="F8D7DA", end_color="F8D7DA")
     thin = Side(style="thin", color="E3E8EF")
 
-    for row_idx in range(DATA_START_ROW, data_end + 1):
+    for row_idx in activity_rows:
         for col_idx in range(DAILY_START_COL, calendar_end_col + 1):
             cell = ws.cell(row_idx, col_idx)
             cell.border = Border(left=thin, right=thin, top=thin, bottom=thin)
@@ -722,16 +785,16 @@ def add_bar_formatting(ws, data_end: int, calendar_end_col: int) -> None:
         )
         ws.conditional_formatting.add(row_range, FormulaRule(formula=[formula], fill=bar_fill))
 
-    ws.conditional_formatting.add(
-        f"E{DATA_START_ROW}:F{data_end}",
-        FormulaRule(
-            formula=[f'=AND($E{DATA_START_ROW}<>"",$F{DATA_START_ROW}<>"",$F{DATA_START_ROW}<$E{DATA_START_ROW})'],
-            fill=invalid_fill,
-        ),
-    )
+        ws.conditional_formatting.add(
+            f"E{row_idx}:F{row_idx}",
+            FormulaRule(
+                formula=[f'=AND($E{row_idx}<>"",$F{row_idx}<>"",$F{row_idx}<$E{row_idx})'],
+                fill=invalid_fill,
+            ),
+        )
 
 
-def write_budget_rows(ws, rows: list[BudgetRow]) -> int:
+def write_budget_rows(ws, rows: list[BudgetRow], calendar_end_col: int) -> tuple[int, list[int]]:
     border = Border(
         left=Side(style="thin", color="B7C9D8"),
         right=Side(style="thin", color="B7C9D8"),
@@ -741,6 +804,24 @@ def write_budget_rows(ws, rows: list[BudgetRow]) -> int:
     section_fill = PatternFill("solid", fgColor="D9EAF7")
     review_fill = PatternFill("solid", fgColor="FFF2CC")
     data_end = DATA_START_ROW - 1
+    activity_rows: list[int] = []
+
+    def write_section(category: str, section_row: int) -> None:
+        for col_idx in range(1, calendar_end_col + 1):
+            cell = ws.cell(section_row, col_idx)
+            cell.fill = section_fill
+            cell.font = Font(bold=True, color="1F3864")
+            cell.border = border
+        ws.merge_cells(
+            start_row=section_row,
+            start_column=1,
+            end_row=section_row,
+            end_column=calendar_end_col,
+        )
+        cell = ws.cell(section_row, 1)
+        cell.value = category
+        cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=True)
+        ws.row_dimensions[section_row].height = 22
 
     grouped: dict[str, list[BudgetRow]] = {category: [] for category in CATEGORY_ORDER}
     for row in rows:
@@ -752,17 +833,12 @@ def write_budget_rows(ws, rows: list[BudgetRow]) -> int:
         if not category_rows:
             continue
 
-        ws.cell(row_idx, 1).value = category
-        for col_idx in range(1, DAILY_START_COL):
-            cell = ws.cell(row_idx, col_idx)
-            cell.fill = section_fill
-            cell.font = Font(bold=True, color="1F3864")
-            cell.border = border
-            cell.alignment = Alignment(vertical="center", wrap_text=True)
+        write_section(category, row_idx)
         data_end = row_idx
         row_idx += 1
 
         for row in category_rows:
+            activity_rows.append(row_idx)
             values = [
                 row.source_row,
                 row.description,
@@ -787,15 +863,11 @@ def write_budget_rows(ws, rows: list[BudgetRow]) -> int:
 
     extra_categories = sorted(category for category in grouped if category not in CATEGORY_ORDER and grouped[category])
     for category in extra_categories:
-        ws.cell(row_idx, 1).value = category
-        for col_idx in range(1, DAILY_START_COL):
-            cell = ws.cell(row_idx, col_idx)
-            cell.fill = section_fill
-            cell.font = Font(bold=True, color="1F3864")
-            cell.border = border
+        write_section(category, row_idx)
         data_end = row_idx
         row_idx += 1
         for row in grouped[category]:
+            activity_rows.append(row_idx)
             values = [row.source_row, row.description, row.quantity, row.unit, None, None, "Pendiente", row.review_reason]
             for col_idx, value in enumerate(values, start=1):
                 cell = ws.cell(row_idx, col_idx)
@@ -811,7 +883,7 @@ def write_budget_rows(ws, rows: list[BudgetRow]) -> int:
         data_end = DATA_START_ROW
         ws.cell(DATA_START_ROW, 2).value = "No se detectaron actividades cronogramables en el presupuesto. Requiere revision manual."
         ws.cell(DATA_START_ROW, 8).value = "El archivo no contiene un bloque presupuestario claro o el LLM excluyo todo como no cronogramable."
-    return data_end
+    return data_end, activity_rows
 
 
 def write_metadata_sheet(wb, identity: ProjectIdentity, source_file: str, selected_sheet: str, notes: list[str]) -> None:
@@ -872,9 +944,9 @@ def build_gantt_workbook(
     ws["A4"] = "Las fechas por actividad quedan vacias para que las complete el ingeniero residente."
 
     calendar_end_col = write_daily_headers(ws, window_start, window_end)
-    data_end = write_budget_rows(ws, rows)
-    add_validations(ws, data_end)
-    add_bar_formatting(ws, data_end, calendar_end_col)
+    data_end, activity_rows = write_budget_rows(ws, rows, calendar_end_col)
+    add_validations(ws, activity_rows)
+    add_bar_formatting(ws, activity_rows, calendar_end_col)
     write_metadata_sheet(wb, identity, source_file_name, selected_sheet, notes)
 
     wb.calculation.calcMode = "auto"

@@ -11,7 +11,7 @@ El workflow hace checkout, instala `requirements.txt`, ejecuta un sanity check d
 entrypoint y procesa los eventos `Pendiente` con
 `EventType = presupuesto_aprobado` de `Cola_Automatizacion_Proyectos`.
 
-El destino de proyectos activos queda limitado a `/Proyectos/02_Activos/`. El
+El destino de proyectos activos queda limitado a `/Proyectos/Proyectos Activos/`. El
 procesador rechaza una configuración que apunte a
 `/Proyectos/PROYECTOS TERMINADOS/`; esa carpeta no forma parte del procesamiento.
 
@@ -40,6 +40,9 @@ También puede ejecutarse con GitHub CLI:
 ```bash
 gh workflow run sistema1-poll-queue.yml --ref feature/power-automate-sistema1-flows -f top=50 -f max_items=5
 ```
+
+Para reprocesar manualmente un item específico que ya esté marcado como
+`Procesado`, agregar `-f item_id=<ID>`. Esta opción no se usa en el schedule.
 
 ## Secrets requeridos
 

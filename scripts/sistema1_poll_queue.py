@@ -20,7 +20,7 @@ from sistema1_gantt_builder import LlmOptions, derive_project_identity, build_ga
 
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
-DEFAULT_ACTIVE_PROJECTS_ROOT = "Proyectos/02_Activos"
+DEFAULT_ACTIVE_PROJECTS_ROOT = "Proyectos/Proyectos Activos"
 FORBIDDEN_PROJECTS_ROOT = "proyectos/proyectos terminados"
 
 
@@ -594,6 +594,11 @@ def main() -> int:
     parser.add_argument("--top", type=int, default=50, help="Cantidad maxima de items recientes a leer.")
     parser.add_argument("--max-items", type=int, default=5, help="Cantidad maxima de pendientes a procesar por corrida.")
     parser.add_argument(
+        "--item-id",
+        default="",
+        help="ID opcional de un item de cola para reprocesarlo manualmente aunque ya no este Pendiente.",
+    )
+    parser.add_argument(
         "--process",
         action="store_true",
         help="Procesa items Pendiente. Sin este flag solo lee y resume la cola.",
@@ -613,7 +618,19 @@ def main() -> int:
     items = list_queue_items(token, site["id"], queue_list["id"], max(1, args.top))
     print_summary(site, queue_list, items)
 
-    pending = pending_budget_items(items, args.max_items)
+    if args.item_id.strip():
+        pending = [item for item in items if str(item.get("id") or "") == args.item_id.strip()]
+        if not pending:
+            raise RuntimeError(
+                f"No se encontro el item de cola {args.item_id.strip()} entre los {len(items)} items leidos."
+            )
+        if item_event_type(pending[0]).casefold() != "presupuesto_aprobado":
+            raise RuntimeError(
+                f"El item de cola {args.item_id.strip()} no es EventType=presupuesto_aprobado."
+            )
+        print(f"Manual reprocess requested for queue item id={args.item_id.strip()}.")
+    else:
+        pending = pending_budget_items(items, args.max_items)
     if args.process and pending:
         try:
             control_list = resolve_list(token, site["id"], settings.control_list_name, settings.control_list_id)

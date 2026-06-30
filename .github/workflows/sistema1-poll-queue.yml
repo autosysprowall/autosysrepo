@@ -13,6 +13,10 @@ on:
         description: "Cantidad maxima de pendientes a procesar"
         required: false
         default: "5"
+      item_id:
+        description: "ID opcional de un item para reprocesarlo manualmente"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -76,11 +80,12 @@ jobs:
           SP_QUEUE_LIST_ID: ${{ vars.SP_QUEUE_LIST_ID }}
           SP_CONTROL_LIST_NAME: ${{ vars.SP_CONTROL_LIST_NAME || 'Control_Gantt_Asignaciones' }}
           SP_CONTROL_LIST_ID: ${{ vars.SP_CONTROL_LIST_ID }}
-          SP_ACTIVE_PROJECTS_ROOT: Proyectos/02_Activos
+          SP_ACTIVE_PROJECTS_ROOT: Proyectos/Proyectos Activos
           OPENAI_ACTIVITY_PLANNER_MODE: ${{ vars.OPENAI_ACTIVITY_PLANNER_MODE || 'live' }}
           OPENAI_ACTIVITY_PLANNER_MODEL: ${{ vars.OPENAI_ACTIVITY_PLANNER_MODEL || 'gpt-4o-mini' }}
         run: |
           python scripts/sistema1_poll_queue.py \
             --top "${{ github.event.inputs.top || '50' }}" \
             --max-items "${{ github.event.inputs.max_items || '5' }}" \
+            --item-id "${{ github.event.inputs.item_id || '' }}" \
             --process
