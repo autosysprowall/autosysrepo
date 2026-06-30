@@ -125,6 +125,18 @@ class AssignmentTests(unittest.TestCase):
         self.assertEqual([], backend.grants)
         self.assertEqual([], backend.notifications)
 
+    def test_existing_assignment_notification_prevents_regrant_without_legacy_flag(self) -> None:
+        backend = FakeBackend()
+        backend.notification_keys.add(("10", "asignaciongantt"))
+        current = record(
+            state="Asignado",
+            permission_granted=False,
+            assignment_date=NOW,
+            deadline=NOW + timedelta(days=9),
+        )
+        AutomationService(backend, NOW).assign(current)
+        self.assertEqual([], backend.grants)
+
     def test_assignment_preserves_en_progreso_state(self) -> None:
         backend = FakeBackend()
         current = record(
@@ -224,6 +236,19 @@ class TrackingTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "SharePoint unavailable"):
             AutomationService(backend, NOW).track(current)
         self.assertFalse(any(patch.get("EstadoGantt") == "Vencido" for _, patch in backend.patches))
+
+    def test_existing_expiration_notification_recovers_vencido_state(self) -> None:
+        backend = FakeBackend()
+        backend.notification_keys.add(("10", "vencimiento"))
+        current = record(
+            state="En progreso",
+            assignment_date=NOW - timedelta(days=9),
+            warning1_sent=True,
+            warning2_sent=True,
+        )
+        result = AutomationService(backend, NOW).track(current)
+        self.assertEqual("Vencido", result.state)
+        self.assertTrue(any(patch.get("EstadoGantt") == "Vencido" for _, patch in backend.patches))
 
 
 class StatusAndMetadataTests(unittest.TestCase):

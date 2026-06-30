@@ -88,6 +88,9 @@ No reescribe la lógica del generador.
   secret, permisos de aplicación y consentimiento de administrador en Entra ID.
 - **Graph GET/PATCH/POST/PUT:** revisar el código HTTP mostrado, permisos
   `Sites.ReadWrite.All` y `Files.ReadWrite.All`, sitio y nombres/IDs de listas.
+- **WARNING al crear columnas:** las operaciones normales continúan, pero
+  ampliar una lista existente requiere `Sites.Manage.All` o crear esas columnas
+  manualmente.
 - **Error al instalar dependencias:** revisar la salida de `pip` y que las
   versiones de `requirements.txt` estén disponibles para Python 3.11.
 - **Error de importación:** el sanity check falla antes de autenticarse y muestra

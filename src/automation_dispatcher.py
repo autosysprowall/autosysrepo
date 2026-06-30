@@ -430,6 +430,13 @@ class AutomationService:
             )
             return replace(record, state="Requiere revisión manual")
 
+        assignment_queued = self.backend.notification_exists(record.item_id, "AsignacionGantt")
+        if assignment_queued and not record.permission_granted:
+            # El dispatcher siempre concede permiso antes de crear esta notificación.
+            # Esto mantiene idempotencia cuando la lista antigua aún no tiene
+            # PermisoGanttOtorgado y Graph no permite ampliar su esquema.
+            record = replace(record, permission_granted=True)
+
         if not record.permission_granted:
             try:
                 self.backend.grant_edit_access(record, engineer)
@@ -468,16 +475,19 @@ class AutomationService:
             },
         )
         record = replace(record, state=target_state, assignment_date=assigned, deadline=deadline)
-        if not record.assignment_email_sent and not self.backend.notification_exists(
-            record.item_id, "AsignacionGantt"
-        ):
+        if not record.assignment_email_sent and not assignment_queued:
             self.backend.queue_notification(record, assignment_notification(record, assigned, deadline))
         return record
 
     def track(self, record: ControlRecord) -> ControlRecord:
         kind = due_tracking_kind(record, self.now)
         self.backend.patch_control(record.item_id, {"UltimoTrackingRun": iso_utc(self.now)})
-        if not kind or self.backend.notification_exists(record.item_id, kind):
+        if not kind:
+            return record
+        if self.backend.notification_exists(record.item_id, kind):
+            if kind == "Vencimiento":
+                self.backend.patch_control(record.item_id, {"EstadoGantt": "Vencido"})
+                return replace(record, state="Vencido")
             return record
         elapsed = days_since(record.assignment_date, self.now) if record.assignment_date else 0
         if kind == "Vencimiento":
@@ -510,14 +520,25 @@ class SharePointBackend:
         for name, column_type in definitions.items():
             if pick_field(existing, (name,)):
                 continue
-            graph_post(
-                self.token,
-                f"{GRAPH_BASE}/sites/{self.site_id}/lists/{target_list['id']}/columns",
-                {"name": name, "displayName": name, **column_type},
-            )
-            print(f"Created SharePoint column {target_list['displayName']}.{name}")
+            try:
+                graph_post(
+                    self.token,
+                    f"{GRAPH_BASE}/sites/{self.site_id}/lists/{target_list['id']}/columns",
+                    {"name": name, "displayName": name, **column_type},
+                )
+                print(f"Created SharePoint column {target_list['displayName']}.{name}")
+            except RuntimeError as exc:
+                if "403" not in str(exc) and "accessDenied" not in str(exc):
+                    raise
+                print(
+                    "WARNING: no se pudo crear la columna "
+                    f"{target_list['displayName']}.{name}. "
+                    "Para ampliar listas existentes, conceder Sites.Manage.All "
+                    "o crear la columna manualmente."
+                )
 
     def _resolve_or_create_notification_list(self, ensure_schema: bool) -> dict[str, Any]:
+        created = False
         try:
             target = resolve_list(self.token, self.site_id, NOTIFICATION_LIST_NAME)
         except RuntimeError:
@@ -528,11 +549,16 @@ class SharePointBackend:
                 f"{GRAPH_BASE}/sites/{self.site_id}/lists",
                 {
                     "displayName": NOTIFICATION_LIST_NAME,
+                    "columns": [
+                        {"name": name, "displayName": name, **column_type}
+                        for name, column_type in NOTIFICATION_COLUMNS.items()
+                    ],
                     "list": {"template": "genericList"},
                 },
             )
+            created = True
             print(f"Created SharePoint list {NOTIFICATION_LIST_NAME}")
-        if ensure_schema:
+        if ensure_schema and not created:
             self._ensure_columns(target, NOTIFICATION_COLUMNS)
         return target
 

@@ -10,7 +10,9 @@ para construirlos en la interfaz de Power Automate.
 
 ## Lista `Cola_Notificaciones_Gantt`
 
-El dispatcher puede crear la lista y estas columnas:
+El dispatcher puede crear la lista y estas columnas en una sola operación. Si
+la lista ya existe pero le faltan columnas, agregarlas manualmente o conceder
+`Sites.Manage.All` a la aplicación de Entra:
 
 | Columna | Tipo |
 |---|---|

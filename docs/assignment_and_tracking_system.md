@@ -51,10 +51,15 @@ La lista `Cola_Notificaciones_Gantt` separa la decisión de negocio del envío
 Outlook. Sus columnas están detalladas en
 [`power_automate_tracking_flows.md`](power_automate_tracking_flows.md).
 
-El dispatcher intenta crear la lista y columnas faltantes mediante Microsoft
-Graph. La aplicación de Entra debe tener consentimiento de aplicación para
-`Sites.ReadWrite.All` y `Files.ReadWrite.All`. Si la política del tenant no
-permite alterar esquemas, crear las columnas manualmente y ejecutar de nuevo.
+El dispatcher crea `Cola_Notificaciones_Gantt` con todas sus columnas en una
+sola operación mediante Microsoft Graph. La aplicación de Entra requiere
+`Sites.ReadWrite.All` y `Files.ReadWrite.All`.
+
+Agregar columnas individualmente a una lista ya existente requiere además
+`Sites.Manage.All`. Si no está concedido, el dispatcher muestra advertencias y
+continúa usando las columnas disponibles. Para auditoría completa, conceder ese
+permiso con consentimiento de administrador o crear manualmente las columnas
+recomendadas y ejecutar de nuevo.
 
 ## Correos desde `Datos`
 
