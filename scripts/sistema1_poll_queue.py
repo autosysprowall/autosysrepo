@@ -20,7 +20,8 @@ from sistema1_gantt_builder import LlmOptions, derive_project_identity, build_ga
 
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
-DEFAULT_ACTIVE_PROJECTS_ROOT = "Proyectos/Proyectos Activos"
+DEFAULT_ACTIVE_PROJECTS_ROOT = "Proyectos/02_Activos"
+FORBIDDEN_PROJECTS_ROOT = "proyectos/proyectos terminados"
 
 
 @dataclass(frozen=True)
@@ -68,6 +69,12 @@ def load_settings() -> Settings:
             + ". GitHub Actions necesita autenticacion no interactiva."
         )
 
+    active_projects_root = env_value("SP_ACTIVE_PROJECTS_ROOT", DEFAULT_ACTIVE_PROJECTS_ROOT).strip("/")
+    if FORBIDDEN_PROJECTS_ROOT in active_projects_root.replace("\\", "/").casefold():
+        raise RuntimeError(
+            "SP_ACTIVE_PROJECTS_ROOT no puede apuntar a /Proyectos/PROYECTOS TERMINADOS/."
+        )
+
     return Settings(
         tenant_id=env_value("MS_GRAPH_TENANT_ID"),
         client_id=env_value("MS_GRAPH_CLIENT_ID"),
@@ -78,7 +85,7 @@ def load_settings() -> Settings:
         queue_list_id=env_value("SP_QUEUE_LIST_ID") or None,
         control_list_name=env_value("SP_CONTROL_LIST_NAME", "Control_Gantt_Asignaciones"),
         control_list_id=env_value("SP_CONTROL_LIST_ID") or None,
-        active_projects_root=env_value("SP_ACTIVE_PROJECTS_ROOT", DEFAULT_ACTIVE_PROJECTS_ROOT).strip("/"),
+        active_projects_root=active_projects_root,
         llm_mode=env_value("OPENAI_ACTIVITY_PLANNER_MODE", "live").lower(),
         llm_model=env_value("OPENAI_ACTIVITY_PLANNER_MODEL", "gpt-4o-mini"),
     )
@@ -121,8 +128,6 @@ def print_token_diagnostics(token: str) -> None:
     claims = decode_token_claims(token)
     diagnostic = {
         "aud": claims.get("aud"),
-        "appid": claims.get("appid") or claims.get("azp"),
-        "tid": claims.get("tid"),
         "roles": claims.get("roles") or [],
         "scp": claims.get("scp") or "",
     }
@@ -633,7 +638,7 @@ def main() -> int:
                 print(f"- id={result.item_id} title={result.title!r}: {result.message}")
             return 1
     elif args.process:
-        print("No hay items Pendiente/presupuesto_aprobado para procesar.")
+        print("No pending events found. No hay eventos pendientes para procesar.")
 
     if args.fail_on_pending and pending:
         return 2

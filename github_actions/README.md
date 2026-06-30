@@ -1,117 +1,13 @@
-# GitHub Actions - Sistema 1
+# GitHub Actions
 
-## Workflow
-
-Archivo:
+El workflow principal del Sistema 1 es `Process SharePoint Queue`, definido en:
 
 ```text
 .github/workflows/sistema1-poll-queue.yml
 ```
 
-Funcion:
+La guía de configuración, ejecución manual, schedule, secrets y diagnóstico está
+en [docs/github_actions.md](../docs/github_actions.md).
 
-- Corre cada 15 minutos con cron `7,22,37,52 * * * *`.
-- Tambien puede ejecutarse manualmente con `workflow_dispatch`.
-- Lee la lista SharePoint `Cola_Automatizacion_Proyectos`.
-- Procesa items `Pendiente` con `EventType = presupuesto_aprobado`.
-- Marca el item como `Procesando`, incrementa `Intentos`, descarga el presupuesto y genera un Gantt WORKING.
-- Usa OpenAI para clasificar/reordenar actividades si `OPENAI_API_KEY` esta configurada.
-- Crea la carpeta del proyecto bajo `/Proyectos/Proyectos Activos/`.
-- Copia el presupuesto aprobado directamente dentro de la carpeta del proyecto.
-- Sube el Gantt a la subcarpeta `gantts/`, sin crear carpeta `working`.
-- Actualiza la cola como `Procesado` o `Error`.
-- Si la lista `Control_Gantt_Asignaciones` esta disponible, crea un item de seguimiento con estado `Pendiente de asignación`.
-
-## Variables configuradas
-
-Estas variables quedan configuradas en GitHub:
-
-```text
-MS_GRAPH_CLIENT_ID
-MS_GRAPH_TENANT_ID
-SP_SITE_HOSTNAME
-SP_SITE_PATH
-SP_QUEUE_LIST_NAME
-SP_QUEUE_LIST_ID
-SP_CONTROL_LIST_NAME
-SP_CONTROL_LIST_ID
-SP_ACTIVE_PROJECTS_ROOT
-OPENAI_ACTIVITY_PLANNER_MODE
-OPENAI_ACTIVITY_PLANNER_MODEL
-```
-
-`SP_CONTROL_LIST_NAME`, `SP_CONTROL_LIST_ID` y `SP_ACTIVE_PROJECTS_ROOT` son opcionales. Si no se configuran, el worker usa:
-
-```text
-Control_Gantt_Asignaciones
-(resuelve la lista por nombre)
-Proyectos/Proyectos Activos
-```
-
-## Secret requerido
-
-GitHub Actions necesita autenticacion no interactiva. El login local por device code no funciona en runners.
-
-Debe existir este secret en GitHub:
-
-```text
-MS_GRAPH_CLIENT_SECRET
-OPENAI_API_KEY
-```
-
-Debe venir de Microsoft Entra ID para la app:
-
-```text
-Autosys Local Graph Prototype
-```
-
-Permisos requeridos esperados para la app:
-
-```text
-Sites.ReadWrite.All
-Files.ReadWrite.All
-```
-
-Si la app solo va a leer la cola al inicio, `Sites.Read.All` podria bastar, pero el Sistema 1 completo necesitara escribir estados, descargar presupuestos, crear carpetas/subir Gantts y crear registros en listas.
-
-## Comandos utiles
-
-Configurar el secret:
-
-```bash
-gh secret set MS_GRAPH_CLIENT_SECRET
-```
-
-Ejecutar manualmente:
-
-```bash
-gh workflow run sistema1-poll-queue.yml -f top=50 -f max_items=5
-```
-
-Ver ultimo run:
-
-```bash
-gh run list --workflow sistema1-poll-queue.yml --limit 5
-gh run view <run-id> --log
-```
-
-## Comportamiento del Gantt generado
-
-El worker genera un archivo `.xlsx` con hoja `Gantt_Diario`.
-
-Columnas principales:
-
-- `Fuente_Fila`
-- `Actividad`
-- `Cantidad`
-- `Unidad`
-- `Fecha_Inicio`
-- `Fecha_Fin`
-- `Estado_Planificacion`
-- `Comentarios`
-
-El Gantt no incluye filas clasificadas como `NO_CRONOGRAMA`. Las actividades se separan con encabezados en negrita por categoria: `PRELIMINARES`, `FABRICA`, `CAMPO` y `ACABADOS`.
-
-Las fechas por actividad quedan vacias. El ingeniero residente las completa. El cronograma diario se pinta automaticamente con barras azules cuando `Fecha_Inicio` y `Fecha_Fin` intersectan los dias del calendario.
-
-El builder usa OpenAI cuando `OPENAI_ACTIVITY_PLANNER_MODE=live` y el secret `OPENAI_API_KEY` existe. Si falla o falta la key, cae a clasificacion local conservadora y deja nota en la hoja `Datos`.
+Power Automate registra eventos en SharePoint y no invoca GitHub Actions
+directamente. GitHub Actions revisa la cola mediante su schedule de 15 minutos.

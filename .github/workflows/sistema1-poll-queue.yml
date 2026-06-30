@@ -1,4 +1,4 @@
-name: Sistema 1 - Poll SharePoint Queue
+name: Process SharePoint Queue
 
 on:
   schedule:
@@ -18,54 +18,67 @@ permissions:
   contents: read
 
 concurrency:
-  group: sistema1-poll-sharepoint-queue
+  group: sharepoint-queue-processor
   cancel-in-progress: false
 
 jobs:
-  poll-queue:
+  process:
     name: Process Cola_Automatizacion_Proyectos
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
-    env:
-      MS_GRAPH_TENANT_ID: ${{ vars.MS_GRAPH_TENANT_ID }}
-      MS_GRAPH_CLIENT_ID: ${{ vars.MS_GRAPH_CLIENT_ID }}
-      MS_GRAPH_CLIENT_SECRET: ${{ secrets.MS_GRAPH_CLIENT_SECRET }}
-      SP_SITE_HOSTNAME: ${{ vars.SP_SITE_HOSTNAME }}
-      SP_SITE_PATH: ${{ vars.SP_SITE_PATH }}
-      SP_QUEUE_LIST_NAME: ${{ vars.SP_QUEUE_LIST_NAME }}
-      SP_QUEUE_LIST_ID: ${{ vars.SP_QUEUE_LIST_ID }}
-      SP_CONTROL_LIST_NAME: ${{ vars.SP_CONTROL_LIST_NAME || 'Control_Gantt_Asignaciones' }}
-      SP_CONTROL_LIST_ID: ${{ vars.SP_CONTROL_LIST_ID }}
-      SP_ACTIVE_PROJECTS_ROOT: ${{ vars.SP_ACTIVE_PROJECTS_ROOT || 'Proyectos/Proyectos Activos' }}
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      OPENAI_ACTIVITY_PLANNER_MODE: ${{ vars.OPENAI_ACTIVITY_PLANNER_MODE || 'live' }}
-      OPENAI_ACTIVITY_PLANNER_MODEL: ${{ vars.OPENAI_ACTIVITY_PLANNER_MODEL || 'gpt-4o-mini' }}
-
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
+          cache: pip
 
       - name: Install dependencies
-        run: python -m pip install -r requirements.txt
-
-      - name: Validate Microsoft Graph auth configuration
-        id: graph-auth
         run: |
-          if [ -z "$MS_GRAPH_CLIENT_SECRET" ]; then
-            echo "::warning::MS_GRAPH_CLIENT_SECRET is not configured. Skipping SharePoint queue poll until the Entra app client secret is added to GitHub Secrets."
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "ready=true" >> "$GITHUB_OUTPUT"
+          python -m pip install --disable-pip-version-check -r requirements.txt
+          python -m pip check
+
+      - name: Sanity check queue processor
+        run: python scripts/sistema1_poll_queue.py --help
+
+      - name: Validate required secrets
+        env:
+          MS_TENANT_ID: ${{ secrets.MS_TENANT_ID }}
+          MS_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
+          MS_CLIENT_SECRET: ${{ secrets.MS_CLIENT_SECRET || secrets.MS_GRAPH_CLIENT_SECRET }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          missing=()
+          for name in MS_TENANT_ID MS_CLIENT_ID MS_CLIENT_SECRET OPENAI_API_KEY; do
+            if [ -z "${!name}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Missing required GitHub Secrets: ${missing[*]}. Configure them in Settings > Secrets and variables > Actions."
+            exit 1
           fi
+          echo "Required secrets are configured."
 
       - name: Process SharePoint queue
-        if: steps.graph-auth.outputs.ready == 'true'
+        env:
+          MS_GRAPH_TENANT_ID: ${{ secrets.MS_TENANT_ID }}
+          MS_GRAPH_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
+          MS_GRAPH_CLIENT_SECRET: ${{ secrets.MS_CLIENT_SECRET || secrets.MS_GRAPH_CLIENT_SECRET }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SP_SITE_HOSTNAME: ${{ vars.SP_SITE_HOSTNAME || 'sciprowall.sharepoint.com' }}
+          SP_SITE_PATH: ${{ vars.SP_SITE_PATH || '/sites/PROYECTOSPROWALL' }}
+          SP_QUEUE_LIST_NAME: ${{ vars.SP_QUEUE_LIST_NAME || 'Cola_Automatizacion_Proyectos' }}
+          SP_QUEUE_LIST_ID: ${{ vars.SP_QUEUE_LIST_ID }}
+          SP_CONTROL_LIST_NAME: ${{ vars.SP_CONTROL_LIST_NAME || 'Control_Gantt_Asignaciones' }}
+          SP_CONTROL_LIST_ID: ${{ vars.SP_CONTROL_LIST_ID }}
+          SP_ACTIVE_PROJECTS_ROOT: Proyectos/02_Activos
+          OPENAI_ACTIVITY_PLANNER_MODE: ${{ vars.OPENAI_ACTIVITY_PLANNER_MODE || 'live' }}
+          OPENAI_ACTIVITY_PLANNER_MODEL: ${{ vars.OPENAI_ACTIVITY_PLANNER_MODEL || 'gpt-4o-mini' }}
         run: |
           python scripts/sistema1_poll_queue.py \
             --top "${{ github.event.inputs.top || '50' }}" \
