@@ -419,6 +419,7 @@ def upsert_control_assignment(
         (("Notas",), notes),
         (("PresupuestoIdentifier",), budget_identifier),
         (("GanttWorkingIdentifier",), gantt_identifier),
+        (("SolicitarVersionado",), False),
     ]
     for candidates, value in assignments:
         field_name = pick_field(field_map, candidates)
