@@ -19,6 +19,8 @@ API_VERSION = "2016-11-01"
 
 RETURN_FLOW_ID = "56a4ec6a-5fd0-4c74-b9cb-7c65b0375928"
 ASSIGNMENT_FLOW_ID = "e5dfdb04-f552-4de8-ad90-df91abfa862d"
+SITE_URL = "https://sciprowall.sharepoint.com/sites/PROYECTOSPROWALL"
+CONTROL_LIST_ID = "afe5544b-3f60-40e4-81a0-01e86920f5f2"
 
 
 def acquire_flow_token(cache_path: Path) -> str:
@@ -112,7 +114,83 @@ def corrected_assignment_definition(definition: dict[str, Any]) -> dict[str, Any
     parameters["emailMessage/Cc"] = "@triggerBody()?['Cc']"
     parameters["emailMessage/Subject"] = "@triggerBody()?['Subject']"
     parameters["emailMessage/Body"] = "@triggerBody()?['Body']"
+    result["actions"]["Confirm_delivery_in_control"] = {
+        "runAfter": {"Update_item": ["Succeeded"]},
+        "cases": {
+            "Assignment": {
+                "case": "AsignacionGantt",
+                "actions": {
+                    "Confirm_assignment": control_update_action(
+                        {
+                            "item/CorreoAsignacionEnviado": True,
+                            "item/FechaCorreoAsignacion": "@utcNow()",
+                        }
+                    )
+                },
+            },
+            "Warning_1": {
+                "case": "Advertencia1",
+                "actions": {
+                    "Confirm_warning_1": control_update_action(
+                        {
+                            "item/Advertencia1Enviada": True,
+                            "item/FechaAdvertencia1": "@utcNow()",
+                        }
+                    )
+                },
+            },
+            "Warning_2": {
+                "case": "Advertencia2",
+                "actions": {
+                    "Confirm_warning_2": control_update_action(
+                        {
+                            "item/Advertencia2Enviada": True,
+                            "item/FechaAdvertencia2": "@utcNow()",
+                        }
+                    )
+                },
+            },
+            "Expiration": {
+                "case": "Vencimiento",
+                "actions": {
+                    "Confirm_expiration": control_update_action(
+                        {
+                            "item/VencimientoNotificado": True,
+                            "item/FechaVencimientoNotificado": "@utcNow()",
+                        }
+                    )
+                },
+            },
+        },
+        "default": {"actions": {}},
+        "expression": "@triggerBody()?['TipoNotificacion']",
+        "type": "Switch",
+    }
     return result
+
+
+def control_update_action(updates: dict[str, Any]) -> dict[str, Any]:
+    parameters: dict[str, Any] = {
+        "dataset": SITE_URL,
+        "table": CONTROL_LIST_ID,
+        "id": "@int(triggerBody()?['RelatedControlItemID'])",
+    }
+    parameters.update(updates)
+    return {
+        "type": "OpenApiConnection",
+        "inputs": {
+            "parameters": parameters,
+            "host": {
+                "apiId": (
+                    "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+                ),
+                "connectionName": "shared_sharepointonline",
+                "operationId": "PatchItem",
+            },
+            "authentication": "@parameters('$authentication')",
+        },
+        "runAfter": {},
+    }
 
 
 def describe_changes(
@@ -133,6 +211,7 @@ def describe_changes(
     print(f"- Cc: {assignment_email['emailMessage/Cc']}")
     print(f"- Subject: {assignment_email['emailMessage/Subject']}")
     print(f"- Body: {assignment_email['emailMessage/Body']}")
+    print("- Confirmación en Control_Gantt_Asignaciones: 4 tipos")
 
 
 def main() -> int:

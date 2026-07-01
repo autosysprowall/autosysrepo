@@ -37,3 +37,15 @@ def test_assignment_flow_uses_notification_queue_fields() -> None:
     assert parameters["emailMessage/Cc"] == "@triggerBody()?['Cc']"
     assert parameters["emailMessage/Subject"] == "@triggerBody()?['Subject']"
     assert parameters["emailMessage/Body"] == "@triggerBody()?['Body']"
+    switch = corrected["actions"]["Confirm_delivery_in_control"]
+    assert switch["expression"] == "@triggerBody()?['TipoNotificacion']"
+    assert {
+        case["case"] for case in switch["cases"].values()
+    } == {
+        "AsignacionGantt",
+        "Advertencia1",
+        "Advertencia2",
+        "Vencimiento",
+    }
+    assignment = switch["cases"]["Assignment"]["actions"]["Confirm_assignment"]
+    assert assignment["inputs"]["parameters"]["item/CorreoAsignacionEnviado"] is True
