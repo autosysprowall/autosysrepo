@@ -45,6 +45,7 @@ def add_datos(
     ws.append(["Fecha de Inicio", start])
     ws.append(["Fecha Final", end])
     ws.append(["Duracion", duration])
+    ws.append(["Status", "En revisión inicial"])
     ws.append(["EstadoGantt", "En revisión inicial"])
 
 
