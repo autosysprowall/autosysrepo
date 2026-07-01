@@ -463,6 +463,23 @@ class GanttWorkbookTests(unittest.TestCase):
             requires_general_budget_label(wb, "Presupuesto Materiales")
         )
 
+    def test_split_campo_sheets_require_consolidation(self) -> None:
+        wb = Workbook()
+        for index, name in enumerate(("CAMPO (1)", "CAMPO (2)", "CAMPO (3)")):
+            ws = wb.active if index == 0 else wb.create_sheet()
+            ws.title = name
+            ws.append(
+                [
+                    "Actividad",
+                    "Unidad",
+                    "Cantidad",
+                    "Costo Unitario",
+                    "Costo Total",
+                ]
+            )
+            ws.append(["Concreto", "m3", 2, 100, 200])
+        self.assertTrue(requires_general_budget_label(wb, "CAMPO (3)"))
+
     def test_project_calendar_understands_duration_units_and_prioritizes_end(self) -> None:
         wb = Workbook()
         wb.remove(wb.active)

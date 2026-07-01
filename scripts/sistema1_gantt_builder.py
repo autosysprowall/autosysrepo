@@ -447,8 +447,37 @@ def select_budget_sheet(wb) -> str:
 
 def requires_general_budget_label(wb, selected_sheet: str) -> bool:
     selected = normalize_text(selected_sheet)
-    if "presupuesto" in selected and "flexio" in selected:
+    if (
+        "presupuesto" in selected
+        and any(term in selected for term in ("flexio", "general"))
+    ):
         return False
+    reliable_sheets: list[str] = []
+    for name in wb.sheetnames:
+        if normalize_text(name) in {
+            "datos",
+            "destinatarios",
+            "flujo de caja",
+        }:
+            continue
+        try:
+            candidate = detect_header_candidate(wb[name])
+        except BudgetExtractionError:
+            continue
+        mapping = candidate.mapping
+        support = sum(
+            bool(mapping.get(field_name))
+            for field_name in (
+                "unidad",
+                "cantidad",
+                "costo_unitario",
+                "costo_total",
+            )
+        )
+        if mapping.get("actividad") and support >= 2:
+            reliable_sheets.append(name)
+    if "pres" not in selected and len(reliable_sheets) > 1:
+        return True
     budget_sheets = [
         name
         for name in wb.sheetnames
