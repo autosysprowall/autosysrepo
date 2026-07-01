@@ -3,8 +3,11 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 from datetime import datetime, timezone
 from typing import Any
+
+import requests
 
 from sistema1_poll_queue import (
     GRAPH_BASE,
@@ -12,7 +15,6 @@ from sistema1_poll_queue import (
     encoded_drive_path,
     graph_get,
     graph_post,
-    graph_request,
     load_settings,
     print_token_diagnostics,
     resolve_list,
@@ -79,21 +81,37 @@ def list_all_queue_items(token: str, site_id: str, list_id: str) -> list[dict[st
 
 
 def delete_drive_item(token: str, site_id: str, item_id: str) -> None:
-    graph_request(
+    delete_graph_resource(
         token,
-        "DELETE",
         f"{GRAPH_BASE}/sites/{site_id}/drive/items/{item_id}",
-        expected=(204,),
     )
 
 
 def delete_queue_item(token: str, site_id: str, list_id: str, item_id: str) -> None:
-    graph_request(
+    delete_graph_resource(
         token,
-        "DELETE",
         f"{GRAPH_BASE}/sites/{site_id}/lists/{list_id}/items/{item_id}",
-        expected=(204,),
     )
+
+
+def delete_graph_resource(token: str, url: str, attempts: int = 4) -> None:
+    for attempt in range(1, attempts + 1):
+        response = requests.delete(
+            url,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "If-Match": "*",
+            },
+            timeout=120,
+        )
+        if response.status_code in {204, 404}:
+            return
+        if response.status_code == 409 and attempt < attempts:
+            time.sleep(attempt)
+            continue
+        raise RuntimeError(
+            f"Graph DELETE {response.status_code}: {response.text[:3000]}"
+        )
 
 
 def approved_budget_files(children: list[dict[str, Any]]) -> list[dict[str, Any]]:
