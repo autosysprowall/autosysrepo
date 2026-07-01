@@ -30,7 +30,10 @@ SAMPLES: tuple[tuple[str, str, int], ...] = (
 
 
 def decode_chunks(prefix: str, count: int) -> bytes:
-    chunks = [os.getenv(f"{prefix}_{index}", "") for index in range(1, count + 1)]
+    chunks = [
+        os.getenv(f"{prefix}_{index}", "").strip()
+        for index in range(1, count + 1)
+    ]
     if any(not chunk for chunk in chunks):
         raise RuntimeError(f"Faltan secretos temporales para {prefix}.")
     return base64.b64decode("".join(chunks), validate=True)
