@@ -409,6 +409,12 @@ def upsert_control_assignment(
     columns = list_columns(token, site_id, control_list["id"])
     field_map = build_field_map(columns)
     fields: dict[str, Any] = {}
+    existing = find_control_item_by_project(
+        token,
+        site_id,
+        control_list["id"],
+        identity_project_id,
+    )
 
     assignments: list[tuple[tuple[str, ...], Any]] = [
         (("Title",), f"{identity_project_id} - {identity_project_name}"),
@@ -421,6 +427,20 @@ def upsert_control_assignment(
         (("GanttWorkingIdentifier",), gantt_identifier),
         (("SolicitarVersionado",), False),
     ]
+    if not existing:
+        assignments.extend(
+            [
+                (("PermisoGanttOtorgado",), False),
+                (("CorreoAsignacionEnviado",), False),
+                (("Advertencia1",), False),
+                (("Advertencia2",), False),
+                (("Advertencia1Enviada",), False),
+                (("Advertencia2Enviada",), False),
+                (("VencimientoNotificado",), False),
+                (("TrackingIntentos",), 0),
+                (("VersionadoIntentos",), 0),
+            ]
+        )
     for candidates, value in assignments:
         field_name = pick_field(field_map, candidates)
         if field_name:
@@ -438,7 +458,6 @@ def upsert_control_assignment(
         if field_name and value:
             link_fields[field_name] = value
 
-    existing = find_control_item_by_project(token, site_id, control_list["id"], identity_project_id)
     if existing:
         graph_patch(
             token,
