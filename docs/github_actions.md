@@ -32,6 +32,14 @@ El dispatcher externo previsto para invocarlo cada 15 minutos permanece
 apagado durante la validación. Power Automate solamente registra eventos en
 SharePoint.
 
+Variables de correo:
+
+- `NOTIFICATION_DELIVERY_MODE`: `test` o `live`;
+- `NOTIFICATION_TEST_RECIPIENT`: destinatario único para pruebas;
+- `ENGINEER_GUIDE_URL`: vínculo a la guía PDF de ingenieros y planta;
+- `GANTT_ESCALATION_CC`: correos adicionales de escalamiento separados por
+  punto y coma.
+
 Para probarlo manualmente:
 
 1. Abrir el repositorio en GitHub.

@@ -126,6 +126,9 @@ auditoría. La configuración inicial usa `auto.sys@prowallpanama.com`.
 No cambiar `NOTIFICATION_DELIVERY_MODE` a `live` hasta la aprobación del
 supervisor.
 
+Las plantillas finales, destinatarios y variables de guía están documentados
+en `docs/email_templates_and_delivery_modes.md`.
+
 Además de la redirección en Python, el flujo activo de Power Automate mantiene
 su campo `To` fijado a `auto.sys@prowallpanama.com`. Esta segunda barrera se
 mantendrá durante la validación con el supervisor.

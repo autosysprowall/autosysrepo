@@ -100,6 +100,16 @@ class AssignmentTests(unittest.TestCase):
         self.assertEqual(NOW + timedelta(days=9), result.deadline)
         self.assertEqual([("10", "ingeniero@example.com")], backend.grants)
         self.assertEqual(["AsignacionGantt"], [item.kind for _, item in backend.notifications])
+        notification = backend.notifications[0][1]
+        self.assertEqual("ingeniero@example.com", notification.to)
+        self.assertEqual("supervisor@example.com", notification.cc)
+        self.assertEqual(
+            "Asignación Cronograma Proyecto Proyecto Prueba",
+            notification.subject,
+        )
+        self.assertIn("El departamento de comercial", notification.body)
+        self.assertIn(record().gantt_link, notification.body)
+        self.assertIn("Guía PDF Ingenieros + Planta", notification.body)
         merged = {key: value for _, patch in backend.patches for key, value in patch.items()}
         self.assertEqual("Asignado", merged["EstadoGantt"])
         self.assertTrue(merged["PermisoGanttOtorgado"])
@@ -204,6 +214,14 @@ class TrackingTests(unittest.TestCase):
         service.track(current)
         service.track(current)
         self.assertEqual(["Advertencia1"], [item.kind for _, item in backend.notifications])
+        notification = backend.notifications[0][1]
+        self.assertEqual("ingeniero@example.com", notification.to)
+        self.assertEqual(
+            "supervisor@example.com;jaime.madrid@prowallpanama.com;"
+            "enrique.correa@prowallpanama.com",
+            notification.cc,
+        )
+        self.assertIn("Han pasado 3 días", notification.body)
 
     def test_day_6_queues_warning_2_with_supervisor_cc(self) -> None:
         backend = FakeBackend()
@@ -217,7 +235,12 @@ class TrackingTests(unittest.TestCase):
         AutomationService(backend, NOW).track(current)
         notification = backend.notifications[0][1]
         self.assertEqual("Advertencia2", notification.kind)
-        self.assertEqual("supervisor@example.com", notification.cc)
+        self.assertEqual(
+            "supervisor@example.com;jaime.madrid@prowallpanama.com;"
+            "enrique.correa@prowallpanama.com",
+            notification.cc,
+        )
+        self.assertIn("Han pasado 6 días", notification.body)
 
     def test_day_9_marks_expired_and_queues_escalation_without_third_warning(self) -> None:
         backend = FakeBackend()
@@ -631,6 +654,18 @@ class DispatcherTests(unittest.TestCase):
         with patch.dict("os.environ", {"NOTIFICATION_DELIVERY_MODE": "live"}):
             delivered = apply_notification_delivery_mode(notification)
         self.assertEqual(notification, delivered)
+
+    def test_engineer_guide_url_is_inserted_in_assignment(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {"ENGINEER_GUIDE_URL": "https://contoso.example/guia.pdf"},
+        ):
+            backend = FakeBackend()
+            AutomationService(backend, NOW).assign(record())
+        self.assertIn(
+            "https://contoso.example/guia.pdf",
+            backend.notifications[0][1].body,
+        )
 
 
 def json_keys(patches: list[tuple[str, dict]]) -> str:
