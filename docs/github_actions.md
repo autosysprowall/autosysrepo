@@ -22,15 +22,15 @@ procesador rechaza una configuración que apunte a
 
 ## Ejecución automática y manual
 
-GitHub Actions evalúa la automatización una vez por hora con:
+El cron interno de GitHub Actions está desactivado. El workflow conserva:
 
 ```yaml
-schedule:
-  - cron: "17 * * * *"
+workflow_dispatch:
 ```
 
-GitHub puede demorar algunos minutos una ejecución programada. Power Automate no
-dispara este workflow directamente: solamente registra eventos en SharePoint.
+El dispatcher externo previsto para invocarlo cada 15 minutos permanece
+apagado durante la validación. Power Automate solamente registra eventos en
+SharePoint.
 
 Para probarlo manualmente:
 
@@ -106,7 +106,6 @@ gh run list --workflow automation-dispatcher.yml --limit 10
 gh run view <run-id> --log
 ```
 
-El cron de GitHub no tiene garantía de hora exacta y puede retrasarse. Si el
-schedule por hora dejara de dispararse de forma sostenida, el fallback diario
-documentado —pero no activo— es `17 12 * * *`. La ejecución manual sirve para
-separar un problema de scheduling de un fallo del dispatcher.
+La ejecución manual permite validar el dispatcher sin depender de un
+scheduler. Si se vuelve a activar un cron de GitHub, debe recordarse que no
+tiene garantía de hora exacta.
