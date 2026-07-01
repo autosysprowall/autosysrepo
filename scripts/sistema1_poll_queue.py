@@ -719,11 +719,11 @@ def main() -> int:
             for item in pending:
                 result = process_queue_item(token, site["id"], queue_list, control_list, settings, item, work_dir)
                 results.append(result)
-            print(
-                f"Processed item id={result.item_id} status={result.status} "
-                f"project={result.project_id or '-'} gantt={result.gantt_url or '-'} "
-                f"message={result.message or '-'}"
-            )
+                print(
+                    f"Processed item id={result.item_id} status={result.status} "
+                    f"project={result.project_id or '-'} gantt={result.gantt_url or '-'} "
+                    f"message={result.message or '-'}"
+                )
         errors = [result for result in results if result.status == "Error"]
         if errors:
             print("Errores de procesamiento:")
