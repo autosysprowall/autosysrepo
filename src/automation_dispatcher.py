@@ -18,7 +18,10 @@ from typing import Any, Protocol
 import requests
 from openpyxl import load_workbook
 
-from src.gantt_versioning import decide_version
+try:
+    from .gantt_versioning import decide_version
+except ImportError:  # Direct execution: python src/automation_dispatcher.py
+    from gantt_versioning import decide_version
 
 
 ROOT = Path(__file__).resolve().parents[1]
