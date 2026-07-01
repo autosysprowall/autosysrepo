@@ -498,7 +498,7 @@ def print_summary(site: dict[str, Any], queue_list: dict[str, Any], items: list[
         item
         for item in items
         if str((item.get("fields") or {}).get("Estado") or "").casefold()
-        in {"requierevision", "error"}
+        in {"requiererevision", "error"}
     ]
     if terminal:
         print("Recent rejection/error detail:")
