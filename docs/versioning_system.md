@@ -33,6 +33,10 @@ los totales del presupuesto original. En la primera aprobación se compara
 contra esa línea base; en aprobaciones posteriores se compara contra `v1.0`.
 La hoja no contiene credenciales ni lógica de correo.
 
+Un Gantt antiguo que no tenga esta hoja y tampoco tenga una `v1.0` previa se
+rechaza con una instrucción de regenerar el WORKING. No se asume `v1.0` sin una
+comparación financiera verificable.
+
 La comparación considera todas las columnas monetarias conservadas por el
 generador cuyos encabezados representan `Costo Total` o `Precio Total`.
 `Costo Unitario`, `Utilidad` y `Margen` no se suman como costo del proyecto.

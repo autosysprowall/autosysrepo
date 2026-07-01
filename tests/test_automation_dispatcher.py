@@ -390,6 +390,10 @@ class VersioningTests(unittest.TestCase):
         self.assertEqual("v2.0", decision.version)
         self.assertTrue(decision.cost_increase)
 
+    def test_legacy_gantt_without_baseline_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Regénere el WORKING"):
+            decide_version(self.gantt_bytes(1000), None)
+
     def test_cost_reduction_stays_v1(self) -> None:
         decision = decide_version(
             self.gantt_bytes(900),

@@ -164,22 +164,26 @@ def decide_version(working_content: bytes, baseline_v1_content: bytes | None) ->
     elif working.baseline_costs:
         baseline_costs = working.baseline_costs
 
-    if baseline_costs:
-        comparable = sorted(set(working.costs) & set(baseline_costs))
-        if not comparable:
-            raise ValueError(
-                "No existen columnas de costo total comparables entre WORKING y v1.0."
-            )
-        increased = [
-            header
-            for header in comparable
-            if working.costs[header] > baseline_costs[header] + COST_TOLERANCE
-        ]
-        cost_increase = bool(increased)
-        if increased:
-            reasons.append(
-                "Aumento de costo detectado en: " + ", ".join(increased)
-            )
+    if not baseline_costs:
+        raise ValueError(
+            "El Gantt no contiene AutosysVersionBaseline y tampoco existe v1.0. "
+            "Regénere el WORKING con el generador actual antes de versionar."
+        )
+    comparable = sorted(set(working.costs) & set(baseline_costs))
+    if not comparable:
+        raise ValueError(
+            "No existen columnas de costo total comparables entre WORKING y su línea base."
+        )
+    increased = [
+        header
+        for header in comparable
+        if working.costs[header] > baseline_costs[header] + COST_TOLERANCE
+    ]
+    cost_increase = bool(increased)
+    if increased:
+        reasons.append(
+            "Aumento de costo detectado en: " + ", ".join(increased)
+        )
 
     if working.schedule_overrun:
         reasons.append(
