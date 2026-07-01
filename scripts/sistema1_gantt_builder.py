@@ -1686,18 +1686,26 @@ def _metadata_sheet(wb, identity: ProjectIdentity, source_file: str, source_shee
     else:
         ws = wb.create_sheet("Datos")
     existing: dict[str, int] = {}
+    status_found = False
     for row_number in range(1, ws.max_row + 1):
-        label = normalize_text(ws.cell(row_number, 1).value)
-        if label:
-            existing[label] = row_number
+        for column_number in range(1, ws.max_column + 1):
+            label = normalize_text(
+                ws.cell(row_number, column_number).value
+            )
+            if column_number == 1 and label:
+                existing[label] = row_number
+            if label == "estadogantt":
+                ws.cell(row_number, column_number + 1).value = "En progreso"
+                status_found = True
     additions = [
         ("ProyectoID", identity.project_id),
         ("NombreProyecto", identity.project_name),
         ("ArchivoPresupuesto", source_file),
         ("HojaPresupuestoUsada", source_sheet),
-        ("EstadoGantt", "En progreso"),
         ("NotasGeneradorGantt", " | ".join(notes)),
     ]
+    if not status_found:
+        additions.append(("EstadoGantt", "En progreso"))
     row_number = max(1, ws.max_row + 1)
     for label, value in additions:
         if normalize_text(label) in existing:

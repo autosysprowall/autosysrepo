@@ -45,6 +45,7 @@ def add_datos(
     ws.append(["Fecha de Inicio", start])
     ws.append(["Fecha Final", end])
     ws.append(["Duracion", duration])
+    ws.append(["EstadoGantt", "En revisión inicial"])
 
 
 def make_budget(
@@ -569,6 +570,17 @@ class GanttWorkbookTests(unittest.TestCase):
                     "hidden",
                     wb["AutosysVersionBaseline"].sheet_state,
                 )
+                datos = wb["Datos"]
+                status_values = [
+                    datos.cell(row, column + 1).value
+                    for row in range(1, datos.max_row + 1)
+                    for column in range(1, datos.max_column)
+                    if str(datos.cell(row, column).value or "")
+                    .strip()
+                    .casefold()
+                    == "estadogantt"
+                ]
+                self.assertEqual(["En progreso"], status_values)
                 self.assertEqual("00C00000", wb["Presupuesto"]["A1"].fill.fgColor.rgb)
                 self.assertEqual("=SUM(1,2)", wb["Presupuesto"]["L2"].value)
 
