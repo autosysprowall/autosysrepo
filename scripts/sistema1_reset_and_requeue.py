@@ -87,6 +87,25 @@ def delete_drive_item(token: str, site_id: str, item_id: str) -> None:
     )
 
 
+def delete_drive_tree(
+    token: str,
+    site_id: str,
+    item: dict[str, Any],
+) -> None:
+    item_id = str(item.get("id") or "")
+    if not item_id:
+        raise RuntimeError("No se puede eliminar un elemento activo sin id.")
+    if item.get("folder") is not None:
+        children = paged_values(
+            token,
+            f"{GRAPH_BASE}/sites/{site_id}/drive/items/{item_id}/children"
+            "?$select=id,name,file,folder&$top=999",
+        )
+        for child in children:
+            delete_drive_tree(token, site_id, child)
+    delete_drive_item(token, site_id, item_id)
+
+
 def delete_queue_item(token: str, site_id: str, list_id: str, item_id: str) -> None:
     delete_graph_resource(
         token,
@@ -294,7 +313,7 @@ def main() -> int:
         )
 
     for item in active_to_delete:
-        delete_drive_item(token, site_id, str(item["id"]))
+        delete_drive_tree(token, site_id, item)
     for item in queue_items:
         delete_queue_item(token, site_id, str(queue_list["id"]), str(item["id"]))
     if control_list:
