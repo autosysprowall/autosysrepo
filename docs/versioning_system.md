@@ -1,26 +1,29 @@
-# Versionado del Gantt
+# Versionado automático del Gantt
 
 El versionado usa la misma fila del proyecto en
-`Control_Gantt_Asignaciones`. No crea otra lista ni otro workflow.
+`Control_Gantt_Asignaciones`. No necesita aprobación manual del supervisor.
 
-## Disparador humano
+## Disparador
 
-Cuando el supervisor aprueba el Gantt WORKING:
+1. El ingeniero termina el cronograma en el Gantt WORKING.
+2. Cambia la celda existente `EstadoGantt` de la hoja `Datos` a
+   `En revisión inicial`.
+3. El dispatcher lee directamente el Excel en cada ejecución.
+4. Si existe un evento `gantt_working_modificado`, también lo procesa como vía
+   rápida, pero el evento no es obligatorio.
+5. Actualiza la lista, activa internamente `SolicitarVersionado` y crea la
+   versión correspondiente.
 
-1. establece `EstadoGantt = En revisión inicial`;
-2. cambia `SolicitarVersionado = Sí`;
-3. ejecuta manualmente `SharePoint Automation Dispatcher`, o espera al
-   dispatcher externo de 15 minutos cuando sea activado.
+`SolicitarVersionado` continúa como flag técnico de reintento e idempotencia,
+pero el supervisor ya no tiene que editarlo.
 
-El cron interno de GitHub Actions está desactivado. El workflow conserva
-únicamente `workflow_dispatch`.
+El cron interno de GitHub Actions está desactivado. El workflow se ejecuta
+manualmente o mediante el dispatcher externo cuando sea activado.
 
 ## Decisión v1.0 o v2.0
 
 Python descarga el WORKING y, si existe, la versión `v1.0`:
 
-- la primera aprobación queda en `v1.0`, salvo que ya exista una actividad
-  posterior a la Fecha Final contractual;
 - si los costos totales comparables se mantienen o disminuyen, queda en
   `v1.0`;
 - si aumenta al menos una columna comparable de costo total o precio total,
@@ -29,19 +32,16 @@ Python descarga el WORKING y, si existe, la versión `v1.0`:
   queda en `v2.0`, aunque los costos no aumenten.
 
 Cada Gantt nuevo contiene la hoja oculta `AutosysVersionBaseline`, creada con
-los totales del presupuesto original. En la primera aprobación se compara
-contra esa línea base; en aprobaciones posteriores se compara contra `v1.0`.
-La hoja no contiene credenciales ni lógica de correo.
+los totales del presupuesto original. En el primer versionado se compara contra
+esa línea base; posteriormente se compara contra `v1.0`.
 
 Un Gantt antiguo que no tenga esta hoja y tampoco tenga una `v1.0` previa se
-rechaza con una instrucción de regenerar el WORKING. No se asume `v1.0` sin una
-comparación financiera verificable.
+rechaza con una instrucción de regenerar el WORKING. No se asume una versión
+sin comparación financiera verificable.
 
-La comparación considera todas las columnas monetarias conservadas por el
-generador cuyos encabezados representan `Costo Total` o `Precio Total`.
-`Costo Unitario`, `Utilidad` y `Margen` no se suman como costo del proyecto.
-Si existe una `v1.0` pero no hay ninguna columna comparable, el proceso falla
-con un error accionable y no aprueba el proyecto.
+La comparación considera todas las columnas cuyo encabezado representa
+`Costo Total` o `Precio Total`. `Costo Unitario`, `Utilidad` y `Margen` no se
+suman como costo del proyecto.
 
 ## Archivos
 
@@ -51,13 +51,11 @@ guarda en `Proyectos Activos/.../gantts/versionados/` como:
 - `{ProyectoID}_gantt_v1.0.xlsx`;
 - `{ProyectoID}_gantt_v2.0.xlsx`.
 
-El WORKING no se mueve ni se renombra. `Proyectos Terminados` está rechazado
-explícitamente. Al aprobar nuevamente el mismo nivel, el archivo de ese nivel
-se actualiza con el WORKING aprobado.
+El WORKING no se mueve ni se renombra. `Proyectos Terminados` está rechazado.
 
 ## Campos actualizados
 
-- `SolicitarVersionado = No`;
+- `SolicitarVersionado = No` después del éxito;
 - `VersionActual = v1.0` o `v2.0`;
 - `GanttVersionLink`;
 - `GanttVersionIdentifier`;
@@ -67,10 +65,7 @@ se actualiza con el WORKING aprobado.
 - `MotivoUltimoVersionado`, si esa columna opcional existe;
 - `UltimoErrorVersionado` vacío.
 
-Ante un fallo no se aprueba el proyecto, la solicitud permanece activa,
+Ante un fallo, el proyecto no se aprueba, el flag técnico permanece activo,
 `VersionadoIntentos` aumenta y la causa queda en `UltimoErrorVersionado`.
 
-## Alcance pendiente
-
-No existe todavía un historial con `v1.1`, `v1.2`, `v2.1` u otros niveles.
-Tampoco se envía un correo de versionado.
+No existe todavía historial con `v1.1`, `v1.2`, `v2.1` u otros niveles.

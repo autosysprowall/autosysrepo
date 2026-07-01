@@ -463,11 +463,17 @@ class AutomationService:
                 {
                     "EstadoGantt": REVIEW_STATE,
                     "FechaEnvioRevision": iso_utc(review_date),
+                    "SolicitarVersionado": True,
                 }
             )
             if record.assignment_date:
                 updates["DiasParaCompletar"] = days_since(record.assignment_date, review_date)
-            record = replace(record, state=REVIEW_STATE, review_date=review_date)
+            record = replace(
+                record,
+                state=REVIEW_STATE,
+                review_date=review_date,
+                version_requested=True,
+            )
         self.backend.patch_control(record.item_id, updates)
         return record
 
@@ -1096,7 +1102,8 @@ class SharePointBackend:
                         "ProyectoID": record.project_id,
                         "Notas": (
                             f"StatusExcel={metadata.status or 'sin campo definido'}; "
-                            "no se creó ninguna versión."
+                            "versionado automático solicitado si el estado es "
+                            "En revisión inicial."
                         ),
                     },
                 )
@@ -1163,8 +1170,31 @@ def run_system2(
             )
         print(f"System 2 isolated test: control item {isolated_run}")
     for record in records:
-        if record.version_requested:
-            updated = service.version(record)
+        if (
+            not record.version_requested
+            and normalized(record.state) in ACTIVE_TRACKING_STATES
+            and (record.gantt_link or record.gantt_identifier)
+        ):
+            try:
+                metadata = backend.load_metadata(record, prefer_gantt=True)
+                if normalized(metadata.status) == normalized(REVIEW_STATE):
+                    record = service.sync_excel_status(record, metadata)
+            except Exception as exc:
+                print(
+                    "WARNING: no se pudo sondear StatusExcel para "
+                    f"control={record.item_id}: {sanitize_error(exc)}",
+                    file=sys.stderr,
+                )
+        automatic_version = normalized(record.state) == normalized(REVIEW_STATE)
+        if record.version_requested or automatic_version:
+            candidate = record
+            if automatic_version and not record.version_requested:
+                backend.patch_control(
+                    record.item_id,
+                    {"SolicitarVersionado": True},
+                )
+                candidate = replace(record, version_requested=True)
+            updated = service.version(candidate)
             if (
                 normalized(updated.current_version) in {"v1.0", "v2.0"}
                 and normalized(updated.state) == "aprobado / versionado"
