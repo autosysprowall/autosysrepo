@@ -51,18 +51,17 @@ columnas de la tabla siguiente.
 
 ## Flujo 1: `PA_S2_EnviarNotificacionesGantt`
 
-Este es el flujo que debe editar el usuario para redactar los mensajes de:
+Este flujo consume los mensajes ya redactados por Python para:
 
 - asignación;
 - Advertencia 1;
 - Advertencia 2;
 - vencimiento.
 
-La cola entrega `TipoNotificacion`, `Subject`, `Body`, `To` y `Cc`. Para usar
-textos redactados directamente en Power Automate, agregar un `Switch` por
-`TipoNotificacion` antes de **Send an email (V2)** y editar el asunto/cuerpo en
-cada rama. Conservar los valores dinámicos de destinatarios, enlace, proyecto y
-fechas. No activar destinatarios reales hasta validar las cuatro ramas.
+La cola entrega `TipoNotificacion`, `Subject`, `Body`, `To` y `Cc`. Power
+Automate no debe volver a redactar ni reemplazar esos campos. El modo `test`
+se aplica antes de crear el item, por lo que el flujo puede usar siempre los
+valores dinámicos. No activar `live` hasta validar las cuatro ramas.
 
 ### Configuración activa de prueba
 
@@ -73,8 +72,9 @@ El flujo activo usa el trigger **When an item is created or modified** sobre
 @equals(triggerBody()?['EstadoNotificacion'],'Pendiente')
 ```
 
-Durante la validación, **Send an email (V2)** tiene `To` fijado a
-`auto.sys@prowallpanama.com`. El asunto y el cuerpo provienen del item. Después
+Durante la validación, Python escribe `To = auto.sys@prowallpanama.com`, elimina
+el CC real y agrega `[PRUEBA]` al asunto. **Send an email (V2)** debe usar el
+campo dinámico `To`; no necesita un destinatario fijo. Después
 del envío exitoso, **Update item** preserva los campos, establece
 `EstadoNotificacion = Enviado` y `FechaEnvio = utcNow()`.
 

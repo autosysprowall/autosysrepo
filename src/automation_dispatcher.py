@@ -57,6 +57,10 @@ ACTIVE_TRACKING_STATES = {"asignado", "en progreso"}
 CLOSED_STATES = {"aprobado / versionado", "vencido"}
 REVIEW_STATE = "En revisión inicial"
 EMAIL_RE = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
+DEFAULT_GANTT_ESCALATION_CC = (
+    "jaime.madrid@prowallpanama.com;"
+    "enrique.correa@prowallpanama.com"
+)
 
 
 CONTROL_COLUMNS: dict[str, dict[str, Any]] = {
@@ -137,6 +141,17 @@ def normalize_emails(value: Any) -> str:
 def is_valid_email(value: str) -> bool:
     emails = normalize_emails(value).split(";") if value else []
     return len(emails) == 1 and emails[0] == value.strip().casefold()
+
+
+def combine_emails(*values: Any) -> str:
+    return normalize_emails(";".join(str(value or "") for value in values))
+
+
+def engineer_guide_line() -> str:
+    guide_url = os.getenv("ENGINEER_GUIDE_URL", "").strip()
+    if guide_url:
+        return f"Guía PDF Ingenieros + Planta:\n{guide_url}"
+    return ""
 
 
 def parse_bool(value: Any) -> bool:
@@ -320,39 +335,61 @@ class AutomationBackend(Protocol):
 
 
 def assignment_notification(record: ControlRecord, assigned: datetime, deadline: datetime) -> Notification:
-    subject = f"Asignación de Gantt - {record.project_id} {record.project_name}".strip()
+    project = record.project_name or record.project_id
+    subject = f"Asignación Cronograma Proyecto {project}".strip()
     body = (
-        "Hola,\n\n"
-        f"Se te ha asignado el Gantt del proyecto {record.project_name or record.project_id}.\n\n"
-        f"Archivo de trabajo:\n{record.gantt_link}\n\n"
+        "El departamento de comercial ha asignado un nuevo presupuesto. "
+        "Se requiere la planificación de las actividades listadas en la "
+        "plantilla adjunta.\n\n"
+        f"Proyecto: {project}\n"
         f"Fecha de asignación: {assigned.date().isoformat()}\n"
         f"Fecha límite: {deadline.date().isoformat()}\n\n"
-        "Por favor trabaja siempre sobre este mismo archivo. No crees copias manuales, "
-        "no cambies el nombre del archivo y no lo muevas de carpeta.\n\n"
-        "Cuando termines, cambia el status del Gantt a:\n\n"
-        "En revisión inicial\n\nSaludos."
+        f"Link de acceso de editor al diagrama:\n{record.gantt_link}"
     )
-    return Notification("AsignacionGantt", record.engineer_email, "", subject, body)
+    guide = engineer_guide_line()
+    if guide:
+        body += f"\n\n{guide}"
+    return Notification(
+        "AsignacionGantt",
+        record.engineer_email,
+        record.supervisors_email,
+        subject,
+        body,
+    )
 
 
 def tracking_notification(record: ControlRecord, kind: str, days: int) -> Notification:
+    project = record.project_name or record.project_id
     base = f"{record.project_id} {record.project_name}".strip()
+    escalation_cc = os.getenv(
+        "GANTT_ESCALATION_CC",
+        DEFAULT_GANTT_ESCALATION_CC,
+    )
+    warning_cc = combine_emails(record.supervisors_email, escalation_cc)
     if kind == "Advertencia1":
-        subject = f"Advertencia 1 - Gantt pendiente - {base}"
+        subject = f"Advertencia Cronograma Proyecto {project}"
         body = (
-            f"Han transcurrido {days} días desde la asignación del Gantt de {base}.\n\n"
-            f"Archivo de trabajo:\n{record.gantt_link}\n\n"
-            "Esta es la primera de dos advertencias."
+            f"Han pasado {days} días desde la asignación del cronograma del "
+            f"proyecto {project}. Por favor agilizar el proceso para permitir "
+            "la mejor planificación posible.\n\n"
+            f"Link de acceso de editor al diagrama:\n{record.gantt_link}"
         )
-        return Notification(kind, record.engineer_email, "", subject, body)
+        guide = engineer_guide_line()
+        if guide:
+            body += f"\n\n{guide}"
+        return Notification(kind, record.engineer_email, warning_cc, subject, body)
     if kind == "Advertencia2":
-        subject = f"Advertencia 2 - Gantt pendiente - {base}"
+        subject = f"Advertencia Cronograma Proyecto {project}"
         body = (
-            f"Han transcurrido {days} días desde la asignación del Gantt de {base}.\n\n"
-            f"Archivo de trabajo:\n{record.gantt_link}\n\n"
-            "Esta es la segunda y última advertencia antes del vencimiento."
+            f"Han pasado {days} días desde la asignación del cronograma del "
+            f"proyecto {project}. Por favor agilizar el proceso para permitir "
+            "la mejor planificación posible.\n\n"
+            f"Link de acceso de editor al diagrama:\n{record.gantt_link}"
         )
-        return Notification(kind, record.engineer_email, record.supervisors_email, subject, body)
+        guide = engineer_guide_line()
+        if guide:
+            body += f"\n\n{guide}"
+        return Notification(kind, record.engineer_email, warning_cc, subject, body)
     recipients = record.supervisors_email or record.engineer_email
     cc = record.engineer_email if record.supervisors_email else ""
     subject = f"Gantt vencido - {base}"

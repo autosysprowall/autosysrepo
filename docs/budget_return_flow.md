@@ -49,12 +49,8 @@ Nombre: `PA_S1_DevolverPresupuestoInvalido`.
 
 El flujo fue creado el 30 de junio de 2026 en el ambiente `Prowall (default)`,
 con ID `56a4ec6a-5fd0-4c74-b9cb-7c65b0375928`. Quedó apagado deliberadamente.
-No activarlo hasta reemplazar:
-
-- `To = auto.sys@prowallpanama.com` por los destinatarios aprobados de
-  Contabilidad/Comercial;
-- el asunto con prefijo `[BORRADOR]`;
-- el cuerpo `BORRADOR PENDIENTE DE REDACCIÓN`.
+Debe permanecer en modo `test` hasta validar el texto final. La guía PDF se
+omite mientras no exista.
 
 La conexión Outlook usada es `auto.sys@prowallpanama.com`; el remitente efectivo
 será esa cuenta mientras no se configure `From (Send as)`.
@@ -74,9 +70,12 @@ será esa cuenta mientras no se configure `From (Send as)`.
 4. **Get file content** usando `FileIdentifier`. El flujo debe fallar antes de
    enviar si no puede obtener el contenido.
 5. **Send an email (V2)**:
-   - To: destinatarios aprobados de Contabilidad/Comercial;
-   - Subject: `Presupuesto devuelto - <FileName>`;
-   - Body: incluir `UltimoError`, nombre y enlace;
+   - To live: `CreatedByEmail`;
+   - CC live: `jaime.madrid@prowallpanama.com`;
+   - To test: `auto.sys@prowallpanama.com`;
+   - CC test: vacío;
+   - Subject: `Presupuesto No Válido Proyecto <NombreProyecto>`;
+   - Body: texto aprobado, `UltimoError`, nombre, enlace y guía de presupuesto;
    - Attachment Name: `FileName`;
    - Attachment Content: salida de **Get file content**.
 6. Después de un envío exitoso, ejecutar **Update item** antes de borrar nada:
@@ -115,3 +114,6 @@ idempotencia. Los eventos rechazados pueden eliminarse únicamente después de:
 
 Así la cola no contiene un rechazo finalizado, pero tampoco pierde el control
 de duplicados durante el proceso.
+
+Las expresiones exactas para alternar `test/live` están en
+`docs/email_templates_and_delivery_modes.md`.
