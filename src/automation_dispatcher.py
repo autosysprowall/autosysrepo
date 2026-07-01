@@ -92,7 +92,6 @@ CONTROL_COLUMNS: dict[str, dict[str, Any]] = {
     "FechaUltimoVersionado": {"dateTime": {"format": "dateTime"}},
     "VersionadoIntentos": {"number": {}},
     "UltimoErrorVersionado": {"text": {"allowMultipleLines": True}},
-    "MotivoUltimoVersionado": {"text": {"allowMultipleLines": True}},
 }
 
 NOTIFICATION_COLUMNS: dict[str, dict[str, Any]] = {

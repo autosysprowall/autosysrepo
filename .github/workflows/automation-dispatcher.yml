@@ -84,6 +84,14 @@ jobs:
           fi
           echo "Required secrets are configured."
 
+      - name: Validate email templates and delivery mode
+        env:
+          NOTIFICATION_DELIVERY_MODE: ${{ vars.NOTIFICATION_DELIVERY_MODE || 'test' }}
+          NOTIFICATION_TEST_RECIPIENT: ${{ vars.NOTIFICATION_TEST_RECIPIENT || 'auto.sys@prowallpanama.com' }}
+          ENGINEER_GUIDE_URL: ${{ vars.ENGINEER_GUIDE_URL }}
+          GANTT_ESCALATION_CC: ${{ vars.GANTT_ESCALATION_CC || 'jaime.madrid@prowallpanama.com;enrique.correa@prowallpanama.com' }}
+        run: python scripts/validate_email_delivery.py
+
       - name: Reset Sistema 1 data and requeue official budgets
         if: github.event_name == 'workflow_dispatch' && inputs.reset_system1_data
         env:
