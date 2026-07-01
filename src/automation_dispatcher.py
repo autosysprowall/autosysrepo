@@ -403,6 +403,32 @@ def tracking_notification(record: ControlRecord, kind: str, days: int) -> Notifi
     return Notification("Vencimiento", recipients, cc, subject, body)
 
 
+def sent_notification_updates(kind: str, sent_at: str) -> dict[str, Any]:
+    fields_by_kind: dict[str, tuple[str, str]] = {
+        "asignaciongantt": (
+            "CorreoAsignacionEnviado",
+            "FechaCorreoAsignacion",
+        ),
+        "advertencia1": (
+            "Advertencia1Enviada",
+            "FechaAdvertencia1",
+        ),
+        "advertencia2": (
+            "Advertencia2Enviada",
+            "FechaAdvertencia2",
+        ),
+        "vencimiento": (
+            "VencimientoNotificado",
+            "FechaVencimientoNotificado",
+        ),
+    }
+    fields = fields_by_kind.get(normalized(kind))
+    if not fields:
+        return {}
+    flag, date_field = fields
+    return {flag: True, date_field: sent_at}
+
+
 def apply_notification_delivery_mode(notification: Notification) -> Notification:
     mode = normalized(os.getenv("NOTIFICATION_DELIVERY_MODE", "test"))
     if mode == "live":
@@ -1018,6 +1044,53 @@ class SharePointBackend:
             self._notification_keys = self._load_notification_keys()
         return (item_id, kind.casefold()) in self._notification_keys
 
+    def sync_sent_notification_flags(self) -> int:
+        synchronized = 0
+        for item in self.list_items(self.notification_list):
+            fields = item.get("fields") or {}
+            state = str(
+                self._get(
+                    fields,
+                    self.notification_fields,
+                    "EstadoNotificacion",
+                )
+                or ""
+            )
+            if normalized(state) != "enviado":
+                continue
+            control_id = str(
+                self._get(
+                    fields,
+                    self.notification_fields,
+                    "RelatedControlItemID",
+                )
+                or ""
+            ).strip()
+            kind = str(
+                self._get(
+                    fields,
+                    self.notification_fields,
+                    "TipoNotificacion",
+                )
+                or ""
+            )
+            sent_at = str(
+                self._get(
+                    fields,
+                    self.notification_fields,
+                    "FechaEnvio",
+                )
+                or iso_utc(datetime.now(timezone.utc))
+            )
+            updates = sent_notification_updates(kind, sent_at)
+            if not control_id or not updates:
+                continue
+            self.patch_control(control_id, updates)
+            synchronized += 1
+        if synchronized:
+            print(f"Synchronized sent notification flags: {synchronized}")
+        return synchronized
+
     def queue_notification(self, record: ControlRecord, notification: Notification) -> None:
         notification = apply_notification_delivery_mode(notification)
         fields = self._map_updates(
@@ -1183,6 +1256,9 @@ def run_system2(
     versioned = 0
     version_errors = 0
     errors = 0
+    sync_flags = getattr(backend, "sync_sent_notification_flags", None)
+    if callable(sync_flags):
+        sync_flags()
     records = backend.control_records()
     if isolated_run:
         records = [record for record in records if record.item_id == isolated_run]

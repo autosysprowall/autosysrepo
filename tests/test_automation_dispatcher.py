@@ -18,11 +18,26 @@ from src.automation_dispatcher import (
     due_tracking_kind,
     extract_workbook_metadata,
     run_system2,
+    sent_notification_updates,
 )
 from src.gantt_versioning import decide_version
 
 
 NOW = datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc)
+
+
+def test_sent_notification_updates_maps_assignment() -> None:
+    assert sent_notification_updates(
+        "AsignacionGantt",
+        "2026-07-01T21:27:47Z",
+    ) == {
+        "CorreoAsignacionEnviado": True,
+        "FechaCorreoAsignacion": "2026-07-01T21:27:47Z",
+    }
+
+
+def test_sent_notification_updates_ignores_unknown_kind() -> None:
+    assert sent_notification_updates("Advertencia3", "2026-07-01T21:27:47Z") == {}
 
 
 class FakeBackend:
