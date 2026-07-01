@@ -4,8 +4,8 @@
 
 Sistema 2 comienza después de que Sistema 1 genera el Gantt WORKING. Comparte
 solamente ese archivo con el ingeniero, encola el correo de asignación, controla
-los días 3, 6 y 9, sincroniza el estado `En revisión inicial` y, tras la
-aprobación humana, crea la versión inicial `v1.0`.
+los días 3, 6 y 9, sincroniza el estado `En revisión inicial` y crea
+automáticamente la versión correspondiente.
 
 No mueve ni renombra el WORKING, no modifica Gantts cerrados y rechaza cualquier
 ruta que contenga `Proyectos Terminados`.

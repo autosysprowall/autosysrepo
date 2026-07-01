@@ -293,7 +293,7 @@ class TrackingTests(unittest.TestCase):
 
 
 class StatusAndMetadataTests(unittest.TestCase):
-    def test_review_status_updates_tracking_without_versioning(self) -> None:
+    def test_review_status_requests_automatic_versioning(self) -> None:
         backend = FakeBackend()
         current = record(
             state="En progreso",
@@ -306,7 +306,8 @@ class StatusAndMetadataTests(unittest.TestCase):
         self.assertEqual("En revisión inicial", result.state)
         merged = {key: value for _, patch in backend.patches for key, value in patch.items()}
         self.assertEqual(4, merged["DiasParaCompletar"])
-        self.assertNotIn("Version", json_keys(backend.patches))
+        self.assertTrue(merged["SolicitarVersionado"])
+        self.assertTrue(result.version_requested)
 
     def test_extracts_engineer_supervisors_and_status_from_datos(self) -> None:
         workbook = Workbook()
@@ -603,6 +604,66 @@ class DispatcherTests(unittest.TestCase):
         self.assertEqual(1, summary["versioned"])
         self.assertEqual(0, summary["version_errors"])
         self.assertEqual(["10"], backend.versions)
+
+    def test_dispatcher_versions_review_state_without_supervisor_flag(self) -> None:
+        class ReviewBackend(FakeBackend):
+            def process_status_events(self, now: datetime, max_items: int = 20) -> int:
+                return 0
+
+            def control_records(self) -> list[ControlRecord]:
+                return [
+                    record(
+                        state="En revisión inicial",
+                        version_requested=False,
+                    )
+                ]
+
+        backend = ReviewBackend()
+        summary = run_system2(backend, NOW, 20)
+        self.assertEqual(1, summary["versioned"])
+        self.assertEqual(["10"], backend.versions)
+        self.assertTrue(
+            any(
+                patch.get("SolicitarVersionado") is True
+                for _, patch in backend.patches
+            )
+        )
+
+    def test_dispatcher_polls_excel_and_versions_without_status_event(self) -> None:
+        class PollingBackend(FakeBackend):
+            def __init__(self) -> None:
+                super().__init__(WorkbookMetadata(status="En revisión inicial"))
+
+            def process_status_events(self, now: datetime, max_items: int = 20) -> int:
+                return 0
+
+            def control_records(self) -> list[ControlRecord]:
+                return [
+                    record(
+                        state="En progreso",
+                        permission_granted=True,
+                        assignment_email_sent=True,
+                        assignment_date=NOW - timedelta(days=2),
+                    )
+                ]
+
+        backend = PollingBackend()
+        summary = run_system2(backend, NOW, 20)
+        self.assertEqual(1, summary["versioned"])
+        self.assertEqual(["10"], backend.versions)
+        merged = {
+            key: value
+            for _, patch in backend.patches
+            for key, value in patch.items()
+        }
+        self.assertEqual("Aprobado / Versionado", merged["EstadoGantt"])
+        self.assertEqual("v1.0", merged["VersionActual"])
+        self.assertTrue(
+            any(
+                patch.get("EstadoGantt") == "En revisión inicial"
+                for _, patch in backend.patches
+            )
+        )
 
     def test_isolated_run_only_processes_requested_control_item(self) -> None:
         class IsolatedBackend(FakeBackend):
