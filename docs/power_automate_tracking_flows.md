@@ -12,6 +12,10 @@ Estado al 30 de junio de 2026:
 - `PA_S2_GanttWorkingModificado_A_Cola` todavía está pendiente de crear.
 - El Switch que confirma flags en `Control_Gantt_Asignaciones` y el Scope de
   fallo todavía están pendientes antes de activar destinatarios reales.
+- `PA_S1_DevolverPresupuestoInvalido` está creado y guardado sin errores, pero
+  permanece apagado. Faltan los destinatarios aprobados y el texto final de
+  Contabilidad/Comercial. Su contrato, adjunto y orden seguro de eliminación
+  están en `docs/budget_return_flow.md`.
 
 ## Lista `Cola_Notificaciones_Gantt`
 
@@ -46,6 +50,19 @@ columnas de la tabla siguiente.
 | `Notas` | Texto multilínea |
 
 ## Flujo 1: `PA_S2_EnviarNotificacionesGantt`
+
+Este es el flujo que debe editar el usuario para redactar los mensajes de:
+
+- asignación;
+- Advertencia 1;
+- Advertencia 2;
+- vencimiento.
+
+La cola entrega `TipoNotificacion`, `Subject`, `Body`, `To` y `Cc`. Para usar
+textos redactados directamente en Power Automate, agregar un `Switch` por
+`TipoNotificacion` antes de **Send an email (V2)** y editar el asunto/cuerpo en
+cada rama. Conservar los valores dinámicos de destinatarios, enlace, proyecto y
+fechas. No activar destinatarios reales hasta validar las cuatro ramas.
 
 ### Configuración activa de prueba
 

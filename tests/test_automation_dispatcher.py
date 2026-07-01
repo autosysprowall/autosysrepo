@@ -11,6 +11,8 @@ from src.automation_dispatcher import (
     AutomationService,
     ControlRecord,
     Notification,
+    SharePointBackend,
+    VersionArtifact,
     WorkbookMetadata,
     apply_notification_delivery_mode,
     due_tracking_kind,
@@ -32,6 +34,8 @@ class FakeBackend:
         self.permission_error: Exception | None = None
         self.notification_error: Exception | None = None
         self.metadata_error: Exception | None = None
+        self.version_error: Exception | None = None
+        self.versions: list[str] = []
 
     def patch_control(self, item_id: str, updates: dict) -> None:
         self.patches.append((item_id, updates))
@@ -57,6 +61,17 @@ class FakeBackend:
             raise AssertionError(f"duplicate notification: {key}")
         self.notification_keys.add(key)
         self.notifications.append((record.item_id, notification))
+
+    def create_initial_version(self, record: ControlRecord) -> VersionArtifact:
+        if self.version_error:
+            raise self.version_error
+        self.versions.append(record.item_id)
+        return VersionArtifact(
+            identifier="version-item-id",
+            web_url="https://contoso.sharepoint.com/versionados/2026-001_gantt_v1.0.xlsx",
+            file_name="2026-001_gantt_v1.0.xlsx",
+            created=True,
+        )
 
 
 def record(**changes) -> ControlRecord:
@@ -289,6 +304,156 @@ class StatusAndMetadataTests(unittest.TestCase):
         self.assertEqual("En revisión inicial", metadata.status)
 
 
+class VersioningTests(unittest.TestCase):
+    def test_requested_review_creates_v1_and_closes_control(self) -> None:
+        backend = FakeBackend()
+        current = record(
+            state="En revisión inicial",
+            version_requested=True,
+        )
+
+        result = AutomationService(backend, NOW).version(current)
+
+        self.assertEqual(["10"], backend.versions)
+        self.assertEqual("v1.0", result.current_version)
+        self.assertEqual("Aprobado / Versionado", result.state)
+        self.assertFalse(result.version_requested)
+        merged = {key: value for _, patch in backend.patches for key, value in patch.items()}
+        self.assertEqual("v1.0", merged["VersionActual"])
+        self.assertEqual("version-item-id", merged["GanttVersionIdentifier"])
+        self.assertFalse(merged["SolicitarVersionado"])
+        self.assertIn("FechaAprobacion", merged)
+
+    def test_existing_v1_recovers_flags_without_duplicate_copy(self) -> None:
+        backend = FakeBackend()
+        current = record(
+            state="En revisión inicial",
+            version_requested=True,
+            current_version="v1.0",
+            version_identifier="version-item-id",
+        )
+
+        result = AutomationService(backend, NOW).version(current)
+
+        self.assertEqual([], backend.versions)
+        self.assertFalse(result.version_requested)
+        self.assertEqual("Aprobado / Versionado", result.state)
+
+    def test_version_requires_review_state(self) -> None:
+        backend = FakeBackend()
+        current = record(
+            state="Asignado",
+            version_requested=True,
+            version_attempts=2,
+        )
+
+        result = AutomationService(backend, NOW).version(current)
+
+        self.assertEqual([], backend.versions)
+        self.assertTrue(result.version_requested)
+        merged = {key: value for _, patch in backend.patches for key, value in patch.items()}
+        self.assertEqual(3, merged["VersionadoIntentos"])
+        self.assertIn("En revisión inicial", merged["UltimoErrorVersionado"])
+
+    def test_version_failure_keeps_request_and_records_error(self) -> None:
+        backend = FakeBackend()
+        backend.version_error = RuntimeError("Graph upload 503")
+        current = record(
+            state="En revisión inicial",
+            version_requested=True,
+        )
+
+        result = AutomationService(backend, NOW).version(current)
+
+        self.assertTrue(result.version_requested)
+        self.assertNotEqual("Aprobado / Versionado", result.state)
+        merged = {key: value for _, patch in backend.patches for key, value in patch.items()}
+        self.assertEqual(1, merged["VersionadoIntentos"])
+        self.assertIn("Graph upload 503", merged["UltimoErrorVersionado"])
+
+    def test_sharepoint_backend_creates_version_in_sibling_folder(self) -> None:
+        backend = SharePointBackend.__new__(SharePointBackend)
+        backend.token = "token"
+        backend.site_id = "site-id"
+        backend.resolve_drive_item = lambda link, identifier: {
+            "id": "working-id",
+            "name": "2026-001_gantt_WORKING.xlsx",
+            "webUrl": "https://contoso/Proyectos/Proyectos%20Activos/P1/gantts/working/file.xlsx",
+            "parentReference": {
+                "driveId": "drive-id",
+                "path": (
+                    "/drives/drive-id/root:/Proyectos/Proyectos Activos/"
+                    "2026-001 Proyecto/gantts/working"
+                ),
+            },
+        }
+        backend._download_drive_item = lambda item: b"xlsx-content"
+        uploaded = {
+            "id": "version-id",
+            "name": "2026-001_gantt_v1.0.xlsx",
+            "webUrl": "https://contoso/versionados/2026-001_gantt_v1.0.xlsx",
+        }
+
+        with (
+            patch("src.automation_dispatcher.path_exists", return_value=False),
+            patch("src.automation_dispatcher.ensure_drive_folder") as ensure_folder,
+            patch(
+                "src.automation_dispatcher.graph_put_bytes",
+                return_value=uploaded,
+            ) as put_bytes,
+        ):
+            artifact = backend.create_initial_version(record())
+
+        self.assertTrue(artifact.created)
+        self.assertEqual("version-id", artifact.identifier)
+        ensure_folder.assert_called_once_with(
+            "token",
+            "site-id",
+            (
+                "Proyectos/Proyectos Activos/2026-001 Proyecto/"
+                "gantts/versionados"
+            ),
+        )
+        self.assertIn(
+            "2026-001_gantt_v1.0.xlsx",
+            put_bytes.call_args.args[1],
+        )
+
+    def test_sharepoint_backend_reuses_existing_v1(self) -> None:
+        backend = SharePointBackend.__new__(SharePointBackend)
+        backend.token = "token"
+        backend.site_id = "site-id"
+        backend.resolve_drive_item = lambda link, identifier: {
+            "id": "working-id",
+            "webUrl": "https://contoso/Proyectos/Proyectos%20Activos/P1/gantts/working/file.xlsx",
+            "parentReference": {
+                "path": (
+                    "/drives/drive-id/root:/Proyectos/Proyectos Activos/"
+                    "2026-001 Proyecto/gantts/working"
+                )
+            },
+        }
+        existing = {
+            "id": "existing-version-id",
+            "name": "2026-001_gantt_v1.0.xlsx",
+            "webUrl": "https://contoso/versionados/2026-001_gantt_v1.0.xlsx",
+        }
+
+        with (
+            patch("src.automation_dispatcher.path_exists", return_value=True),
+            patch(
+                "src.automation_dispatcher.get_drive_item_by_path",
+                return_value=existing,
+            ),
+            patch("src.automation_dispatcher.graph_put_bytes") as put_bytes,
+        ):
+            artifact = backend.create_initial_version(record())
+
+        self.assertFalse(artifact.created)
+        self.assertEqual("existing-version-id", artifact.identifier)
+        put_bytes.assert_not_called()
+
+
 class DispatcherTests(unittest.TestCase):
     def test_empty_lists_finish_with_zero_errors(self) -> None:
         class EmptyBackend(FakeBackend):
@@ -301,6 +466,26 @@ class DispatcherTests(unittest.TestCase):
         summary = run_system2(EmptyBackend(), NOW, 20)
         self.assertEqual(0, summary["control_items"])
         self.assertEqual(0, summary["errors"])
+        self.assertEqual(0, summary["versioned"])
+
+    def test_dispatcher_processes_requested_version_before_closed_state_filter(self) -> None:
+        class VersionBackend(FakeBackend):
+            def process_status_events(self, now: datetime, max_items: int = 20) -> int:
+                return 0
+
+            def control_records(self) -> list[ControlRecord]:
+                return [
+                    record(
+                        state="En revisión inicial",
+                        version_requested=True,
+                    )
+                ]
+
+        backend = VersionBackend()
+        summary = run_system2(backend, NOW, 20)
+        self.assertEqual(1, summary["versioned"])
+        self.assertEqual(0, summary["version_errors"])
+        self.assertEqual(["10"], backend.versions)
 
     def test_isolated_run_only_processes_requested_control_item(self) -> None:
         class IsolatedBackend(FakeBackend):

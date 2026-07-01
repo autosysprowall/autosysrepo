@@ -16,7 +16,12 @@ from urllib.parse import quote
 import msal
 import requests
 
-from sistema1_gantt_builder import LlmOptions, derive_project_identity, build_gantt_workbook
+from sistema1_gantt_builder import (
+    GanttReviewRequiredError,
+    LlmOptions,
+    build_gantt_workbook,
+    derive_project_identity,
+)
 
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
@@ -282,6 +287,19 @@ def trim_note(value: str, max_len: int = 240) -> str:
     return value[:max_len]
 
 
+def rejection_queue_updates(error: str) -> dict[str, Any]:
+    return {
+        "Estado": "RequiereRevision",
+        "UltimoError": trim_note(error, 240),
+        "Notas": (
+            "DEVOLVER_PRESUPUESTO: no se generó ni se subió un Gantt. "
+            "El flujo de devolución debe adjuntar el presupuesto original, "
+            "enviar el correo y solo después retirar el archivo de "
+            "Presupuestos Aprobados."
+        ),
+    }
+
+
 def drive_path_from_queue_fields(fields: dict[str, Any]) -> str:
     file_name = str(fields.get("Filename") or fields.get("FileName") or fields.get("Title") or "").strip()
     folder_path = str(fields.get("FolderPath") or "").replace("\\", "/").strip("/")
@@ -511,7 +529,7 @@ def process_queue_item(
         source_file_name = Path(source_drive_path).name
         identity = derive_project_identity(source_file_name)
         project_folder = f"{settings.active_projects_root}/{identity.folder_name}"
-        gantt_folder = f"{project_folder}/gantts"
+        gantt_folder = f"{project_folder}/gantts/working"
 
         local_budget = work_dir / "input" / source_file_name
         local_gantt = work_dir / "output" / identity.gantt_file_name
@@ -593,6 +611,21 @@ def process_queue_item(
             gantt_url=gantt_url,
             budget_url=budget_url,
             message=note,
+        )
+    except GanttReviewRequiredError as exc:
+        error = trim_note(str(exc), 240)
+        update_queue_fields(
+            token,
+            site_id,
+            queue_list_id,
+            item_id,
+            rejection_queue_updates(error),
+        )
+        return ProcessResult(
+            item_id=item_id,
+            title=title,
+            status="RequiereRevision",
+            message=error,
         )
     except Exception as exc:
         error = trim_note(str(exc), 240)

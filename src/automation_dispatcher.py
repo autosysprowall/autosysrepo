@@ -33,8 +33,13 @@ from sistema1_poll_queue import (  # noqa: E402
     graph_get,
     graph_patch,
     graph_post,
+    graph_put_bytes,
+    encoded_drive_path,
+    ensure_drive_folder,
+    get_drive_item_by_path,
     list_columns,
     load_settings,
+    path_exists,
     pick_field,
     print_token_diagnostics,
     resolve_list,
@@ -62,6 +67,8 @@ CONTROL_COLUMNS: dict[str, dict[str, Any]] = {
     "FechaCorreoAsignacion": {"dateTime": {"format": "dateTime"}},
     "FechaAdvertencia1": {"dateTime": {"format": "dateTime"}},
     "FechaAdvertencia2": {"dateTime": {"format": "dateTime"}},
+    "Advertencia1Enviada": {"boolean": {}},
+    "Advertencia2Enviada": {"boolean": {}},
     "VencimientoNotificado": {"boolean": {}},
     "FechaVencimientoNotificado": {"dateTime": {"format": "dateTime"}},
     "UltimoTrackingRun": {"dateTime": {"format": "dateTime"}},
@@ -69,6 +76,13 @@ CONTROL_COLUMNS: dict[str, dict[str, Any]] = {
     "UltimoErrorTracking": {"text": {"allowMultipleLines": True}},
     "StatusExcel": {"text": {}},
     "FechaLecturaStatusExcel": {"dateTime": {"format": "dateTime"}},
+    "SolicitarVersionado": {"boolean": {}},
+    "VersionActual": {"text": {}},
+    "GanttVersionLink": {"text": {}},
+    "GanttVersionIdentifier": {"text": {}},
+    "FechaUltimoVersionado": {"dateTime": {"format": "dateTime"}},
+    "VersionadoIntentos": {"number": {}},
+    "UltimoErrorVersionado": {"text": {"allowMultipleLines": True}},
 }
 
 NOTIFICATION_COLUMNS: dict[str, dict[str, Any]] = {
@@ -261,6 +275,20 @@ class ControlRecord:
     warning2_sent: bool = False
     expiration_notified: bool = False
     tracking_attempts: int = 0
+    version_requested: bool = False
+    current_version: str = ""
+    version_link: str = ""
+    version_identifier: str = ""
+    versioned_at: datetime | None = None
+    version_attempts: int = 0
+
+
+@dataclass(frozen=True)
+class VersionArtifact:
+    identifier: str
+    web_url: str
+    file_name: str
+    created: bool
 
 
 @dataclass(frozen=True)
@@ -282,6 +310,8 @@ class AutomationBackend(Protocol):
     def notification_exists(self, item_id: str, kind: str) -> bool: ...
 
     def queue_notification(self, record: ControlRecord, notification: Notification) -> None: ...
+
+    def create_initial_version(self, record: ControlRecord) -> VersionArtifact: ...
 
 
 def assignment_notification(record: ControlRecord, assigned: datetime, deadline: datetime) -> Notification:
@@ -396,6 +426,93 @@ class AutomationService:
             record = replace(record, state=REVIEW_STATE, review_date=review_date)
         self.backend.patch_control(record.item_id, updates)
         return record
+
+    def version(self, record: ControlRecord) -> ControlRecord:
+        if not record.version_requested:
+            return record
+        if contains_forbidden_path(
+            record.gantt_link,
+            record.version_link,
+            record.budget_link,
+        ):
+            self.backend.patch_control(
+                record.item_id,
+                {
+                    "UltimoErrorVersionado": (
+                        "Ruta rechazada: Proyectos Terminados está fuera del procesamiento."
+                    ),
+                    "VersionadoIntentos": record.version_attempts + 1,
+                },
+            )
+            return record
+
+        version_complete = (
+            normalized(record.current_version) in {"v1.0", "1.0"}
+            and bool(record.version_link or record.version_identifier)
+        )
+        if version_complete:
+            self.backend.patch_control(
+                record.item_id,
+                {
+                    "SolicitarVersionado": False,
+                    "EstadoGantt": "Aprobado / Versionado",
+                    "UltimoErrorVersionado": "",
+                },
+            )
+            return replace(
+                record,
+                version_requested=False,
+                state="Aprobado / Versionado",
+            )
+
+        if normalized(record.state) != normalized(REVIEW_STATE):
+            self.backend.patch_control(
+                record.item_id,
+                {
+                    "UltimoErrorVersionado": (
+                        "SolicitarVersionado requiere EstadoGantt = En revisión inicial."
+                    ),
+                    "VersionadoIntentos": record.version_attempts + 1,
+                },
+            )
+            return record
+
+        try:
+            artifact = self.backend.create_initial_version(record)
+        except Exception as exc:
+            self.backend.patch_control(
+                record.item_id,
+                {
+                    "UltimoErrorVersionado": sanitize_error(exc)[:500],
+                    "VersionadoIntentos": record.version_attempts + 1,
+                },
+            )
+            return record
+
+        updates = {
+            "SolicitarVersionado": False,
+            "VersionActual": "v1.0",
+            "GanttVersionLink": artifact.web_url,
+            "GanttVersionIdentifier": artifact.identifier,
+            "FechaUltimoVersionado": iso_utc(self.now),
+            "FechaAprobacion": iso_utc(self.now),
+            "EstadoGantt": "Aprobado / Versionado",
+            "UltimoErrorVersionado": "",
+        }
+        self.backend.patch_control(record.item_id, updates)
+        print(
+            f"Versioned control={record.item_id} version=v1.0 "
+            f"file={artifact.file_name} created={artifact.created}"
+        )
+        return replace(
+            record,
+            version_requested=False,
+            current_version="v1.0",
+            version_link=artifact.web_url,
+            version_identifier=artifact.identifier,
+            versioned_at=self.now,
+            state="Aprobado / Versionado",
+        )
 
     def assign(self, record: ControlRecord) -> ControlRecord:
         state = normalized(record.state)
@@ -606,6 +723,13 @@ class SharePointBackend:
         aliases = {
             "EstadoGantt": ("EstadoGantt", "EstadoGannt"),
             "GanttWorkingLink": ("GanttWorkingLink", "GanntWorkingLink"),
+            "FechaGanttGenerado": ("FechaGanttGenerado", "FechaGanntGenerado"),
+            "VersionActual": ("VersionActual", "VersionadoActual"),
+            "GanttVersionLink": ("GanttVersionLink", "GanntVersionLink"),
+            "GanttVersionIdentifier": (
+                "GanttVersionIdentifier",
+                "GanntVersionIdentifier",
+            ),
         }
         for canonical, value in updates.items():
             field_name = pick_field(field_map, aliases.get(canonical, (canonical,)))
@@ -652,6 +776,19 @@ class SharePointBackend:
                     warning2_sent=parse_bool(get("Advertencia2Enviada")),
                     expiration_notified=parse_bool(get("VencimientoNotificado")),
                     tracking_attempts=parse_int(get("TrackingIntentos")),
+                    version_requested=parse_bool(get("SolicitarVersionado")),
+                    current_version=str(
+                        get("VersionActual", "VersionadoActual") or ""
+                    ),
+                    version_link=link_text(
+                        get("GanttVersionLink", "GanntVersionLink")
+                    ),
+                    version_identifier=str(
+                        get("GanttVersionIdentifier", "GanntVersionIdentifier")
+                        or ""
+                    ),
+                    versioned_at=parse_datetime(get("FechaUltimoVersionado")),
+                    version_attempts=parse_int(get("VersionadoIntentos")),
                 )
             )
         return records
@@ -751,6 +888,58 @@ class SharePointBackend:
                 "requireSignIn": True,
                 "sendInvitation": False,
             },
+        )
+
+    def create_initial_version(self, record: ControlRecord) -> VersionArtifact:
+        source = self.resolve_drive_item(record.gantt_link, record.gantt_identifier)
+        source_url = str(source.get("webUrl") or "")
+        parent = source.get("parentReference") or {}
+        parent_path_raw = str(parent.get("path") or "")
+        if contains_forbidden_path(source_url, parent_path_raw):
+            raise RuntimeError("Ruta rechazada: Proyectos Terminados.")
+        if "root:" not in parent_path_raw:
+            raise RuntimeError("No se pudo determinar la carpeta del Gantt WORKING.")
+        working_folder = parent_path_raw.split("root:", 1)[1].strip("/")
+        normalized_folder = normalized(
+            requests.utils.unquote(working_folder).replace("_", " ").replace("-", " ")
+        )
+        if "proyectos/proyectos activos" not in working_folder.casefold():
+            raise RuntimeError("El Gantt WORKING no está dentro de Proyectos Activos.")
+        if not normalized_folder.endswith("gantts/working"):
+            raise RuntimeError("El archivo no está dentro de /gantts/working/.")
+
+        project_id = re.sub(r'[<>:"/\\|?*]+', "_", record.project_id.strip())
+        if not project_id:
+            raise RuntimeError("ProyectoID vacío; no se puede nombrar la versión.")
+        version_name = f"{project_id}_gantt_v1.0.xlsx"
+        gantts_folder = working_folder.rsplit("/", 1)[0]
+        version_folder = f"{gantts_folder}/versionados"
+        version_path = f"{version_folder}/{version_name}"
+
+        if path_exists(self.token, self.site_id, version_path):
+            target = get_drive_item_by_path(
+                self.token,
+                self.site_id,
+                version_path,
+            )
+            created = False
+        else:
+            ensure_drive_folder(self.token, self.site_id, version_folder)
+            content = self._download_drive_item(source)
+            target = graph_put_bytes(
+                self.token,
+                (
+                    f"{GRAPH_BASE}/sites/{self.site_id}/drive/root:/"
+                    f"{encoded_drive_path(version_path)}:/content"
+                ),
+                content,
+            )
+            created = True
+        return VersionArtifact(
+            identifier=str(target.get("id") or ""),
+            web_url=str(target.get("webUrl") or ""),
+            file_name=str(target.get("name") or version_name),
+            created=created,
         )
 
     def _load_notification_keys(self) -> set[tuple[str, str]]:
@@ -931,6 +1120,8 @@ def run_system2(
     service = AutomationService(backend, now)
     assigned = 0
     tracked = 0
+    versioned = 0
+    version_errors = 0
     errors = 0
     records = backend.control_records()
     if isolated_run:
@@ -941,6 +1132,16 @@ def run_system2(
             )
         print(f"System 2 isolated test: control item {isolated_run}")
     for record in records:
+        if record.version_requested:
+            updated = service.version(record)
+            if (
+                normalized(updated.current_version) == "v1.0"
+                and normalized(updated.state) == "aprobado / versionado"
+            ):
+                versioned += 1
+            else:
+                version_errors += 1
+            continue
         if (
             normalized(record.state) in CLOSED_STATES
             or normalized(record.state) == normalized(REVIEW_STATE)
@@ -969,6 +1170,8 @@ def run_system2(
         "control_items": len(records),
         "assigned_or_active": assigned,
         "tracked": tracked,
+        "versioned": versioned,
+        "version_errors": version_errors,
         "status_events": status_events,
         "errors": errors,
     }
@@ -986,6 +1189,11 @@ def main() -> int:
         help="Limita Sistema 2 a un item de Control_Gantt_Asignaciones.",
     )
     parser.add_argument("--skip-system1", action="store_true")
+    parser.add_argument(
+        "--skip-system2",
+        action="store_true",
+        help="Ejecuta solo Sistema 1; no comparte archivos, encola correos ni procesa tracking.",
+    )
     parser.add_argument("--skip-schema", action="store_true")
     args = parser.parse_args()
 
@@ -999,6 +1207,10 @@ def main() -> int:
                 "Sistema 1 terminó con error; Sistema 2 continuará para no bloquear "
                 f"asignaciones y tracking: {system1_error}"
             )
+
+    if args.skip_system2:
+        print("Sistema 2 omitido: no se procesaron asignaciones, correos, permisos ni tracking.")
+        return 1 if system1_error else 0
 
     settings = load_settings()
     token = acquire_token(settings)
@@ -1015,7 +1227,7 @@ def main() -> int:
         summary["system1_errors"] = 1
     print("Autosys automation dispatcher summary:")
     print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
-    if summary["errors"] or system1_error:
+    if summary["errors"] or summary["version_errors"] or system1_error:
         return 1
     return 0
 
