@@ -14,6 +14,7 @@ if str(SCRIPTS) not in sys.path:
 from sistema1_reset_and_requeue import (  # noqa: E402
     active_items_to_delete,
     approved_budget_files,
+    sharepoint_file_identifier,
     validate_roots,
 )
 
@@ -74,3 +75,15 @@ def test_approved_budget_files_only_returns_real_xlsx_files() -> None:
         "A.xlsx",
         "B.xlsx",
     ]
+
+
+def test_sharepoint_file_identifier_is_double_url_encoded() -> None:
+    identifier = sharepoint_file_identifier(
+        "Proyectos/Presupuestos Aprobados",
+        "2025-111 Presupuesto prueba.xlsx",
+    )
+
+    assert identifier == (
+        "%252FDocumentos%2Bcompartidos%252FProyectos%252F"
+        "Presupuestos%2BAprobados%252F2025-111%2BPresupuesto%2Bprueba.xlsx"
+    )

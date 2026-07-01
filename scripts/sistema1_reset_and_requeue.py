@@ -6,6 +6,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import quote_plus
 
 import requests
 
@@ -169,6 +170,13 @@ def active_items_to_delete(
     return [] if queue_only else children
 
 
+def sharepoint_file_identifier(folder_path: str, file_name: str) -> str:
+    server_relative_path = (
+        f"/Documentos compartidos/{normalized_path(folder_path)}/{file_name}"
+    )
+    return quote_plus(quote_plus(server_relative_path, safe=""), safe="")
+
+
 def queue_budget(
     token: str,
     site_id: str,
@@ -183,7 +191,7 @@ def queue_budget(
         "EventType": "presupuesto_aprobado",
         "Estado": "Pendiente",
         "Filename": name,
-        "FileID": str(item.get("id") or ""),
+        "FileID": sharepoint_file_identifier(approved_root, name),
         "FolderPath": f"Documentos compartidos/{normalized_path(approved_root)}/",
         "CreatedTime": now,
         "Intentos": "0",
