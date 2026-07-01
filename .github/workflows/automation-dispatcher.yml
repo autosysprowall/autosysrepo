@@ -44,6 +44,11 @@ on:
         required: false
         type: boolean
         default: false
+      restore_test_samples:
+        description: "Restaurar temporalmente los dos presupuestos inválidos de la muestra"
+        required: false
+        type: boolean
+        default: false
 permissions:
   contents: read
 
@@ -101,6 +106,19 @@ jobs:
           ENGINEER_GUIDE_URL: ${{ vars.ENGINEER_GUIDE_URL }}
           GANTT_ESCALATION_CC: ${{ vars.GANTT_ESCALATION_CC || 'jaime.madrid@prowallpanama.com;enrique.correa@prowallpanama.com' }}
         run: python scripts/validate_email_delivery.py
+
+      - name: Restore controlled invalid test samples
+        if: github.event_name == 'workflow_dispatch' && inputs.restore_test_samples
+        env:
+          MS_GRAPH_TENANT_ID: ${{ secrets.MS_TENANT_ID }}
+          MS_GRAPH_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
+          MS_GRAPH_CLIENT_SECRET: ${{ secrets.MS_CLIENT_SECRET || secrets.MS_GRAPH_CLIENT_SECRET }}
+          RESTORE_SAMPLE_1_B64_1: ${{ secrets.RESTORE_SAMPLE_1_B64_1 }}
+          RESTORE_SAMPLE_1_B64_2: ${{ secrets.RESTORE_SAMPLE_1_B64_2 }}
+          RESTORE_SAMPLE_1_B64_3: ${{ secrets.RESTORE_SAMPLE_1_B64_3 }}
+          RESTORE_SAMPLE_2_B64_1: ${{ secrets.RESTORE_SAMPLE_2_B64_1 }}
+          RESTORE_SAMPLE_2_B64_2: ${{ secrets.RESTORE_SAMPLE_2_B64_2 }}
+        run: python scripts/restore_controlled_test_samples.py
 
       - name: Reset Sistema 1 data and requeue official budgets
         if: github.event_name == 'workflow_dispatch' && inputs.reset_system1_data
