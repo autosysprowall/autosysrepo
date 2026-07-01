@@ -445,6 +445,20 @@ def select_budget_sheet(wb) -> str:
     return names[0]
 
 
+def requires_general_budget_label(wb, selected_sheet: str) -> bool:
+    selected = normalize_text(selected_sheet)
+    if "presupuesto" in selected and "flexio" in selected:
+        return False
+    budget_sheets = [
+        name
+        for name in wb.sheetnames
+        if "pres" in normalize_text(name)
+        and normalize_text(name)
+        not in {"datos", "destinatarios", "flujo de caja"}
+    ]
+    return len(budget_sheets) > 1
+
+
 def is_non_empty(value: Any) -> bool:
     return display_text(value) != ""
 
@@ -1991,6 +2005,10 @@ def build_gantt_workbook(
             source_sheet=selected_sheet,
             column_mapper=llm_mapper,
             enforce_quality_gate=True,
+            require_general_budget_label=requires_general_budget_label(
+                value_wb,
+                selected_sheet,
+            ),
         )
         window_start, window_end, notes = read_project_window(value_wb)
     except BudgetExtractionError as exc:

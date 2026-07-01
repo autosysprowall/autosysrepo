@@ -742,16 +742,26 @@ def extract_budget_structure(
     scan_limit: int = 50,
     column_mapper: ColumnMapper | None = None,
     enforce_quality_gate: bool = False,
+    require_general_budget_label: bool = True,
 ) -> BudgetExtractionResult:
     candidate = detect_header_candidate(ws, scan_limit=scan_limit)
     mapping = dict(candidate.mapping)
     assessment = BudgetAssessment(header_score=candidate.score)
-    if enforce_quality_gate and not _contains_general_budget_label(ws):
+    if (
+        enforce_quality_gate
+        and require_general_budget_label
+        and not _contains_general_budget_label(ws)
+    ):
         _reject(
             assessment,
             "SIN_PRESUPUESTO_GENERAL",
             "No se encontró un bloque identificado como Presupuesto General; "
             "el archivo parece dividido o incompleto.",
+        )
+    elif enforce_quality_gate and not _contains_general_budget_label(ws):
+        assessment.warnings.append(
+            "No se encontró el rótulo Presupuesto General, pero se aceptó una "
+            "única hoja oficial/consolidada tras validar su estructura."
         )
     if enforce_quality_gate:
         for row_number in range(candidate.row_number + 1, ws.max_row + 1):
