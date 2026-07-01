@@ -1694,7 +1694,13 @@ def _metadata_sheet(wb, identity: ProjectIdentity, source_file: str, source_shee
             )
             if column_number == 1 and label:
                 existing[label] = row_number
-            if label == "estadogantt":
+            if label in {
+                "estadogantt",
+                "estado gantt",
+                "statusgantt",
+                "status gantt",
+                "status",
+            }:
                 ws.cell(row_number, column_number + 1).value = "En progreso"
                 status_found = True
     additions = [
