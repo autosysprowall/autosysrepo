@@ -113,7 +113,7 @@ def delete_queue_item(token: str, site_id: str, list_id: str, item_id: str) -> N
     )
 
 
-def delete_graph_resource(token: str, url: str, attempts: int = 4) -> None:
+def delete_graph_resource(token: str, url: str, attempts: int = 8) -> None:
     etag = ""
     for attempt in range(1, attempts + 1):
         headers = {"Authorization": f"Bearer {token}"}
@@ -126,21 +126,22 @@ def delete_graph_resource(token: str, url: str, attempts: int = 4) -> None:
         )
         if response.status_code in {204, 404}:
             return
-        if response.status_code in {409, 412} and attempt < attempts:
-            current = requests.get(
-                url,
-                headers={"Authorization": f"Bearer {token}"},
-                timeout=120,
-            )
-            if current.status_code == 404:
-                return
-            if current.status_code == 200:
-                payload = current.json()
-                etag = str(
-                    payload.get("eTag")
-                    or payload.get("@odata.etag")
-                    or ""
+        if response.status_code in {409, 412, 423} and attempt < attempts:
+            if response.status_code in {409, 412}:
+                current = requests.get(
+                    url,
+                    headers={"Authorization": f"Bearer {token}"},
+                    timeout=120,
                 )
+                if current.status_code == 404:
+                    return
+                if current.status_code == 200:
+                    payload = current.json()
+                    etag = str(
+                        payload.get("eTag")
+                        or payload.get("@odata.etag")
+                        or ""
+                    )
             time.sleep(attempt)
             continue
         raise RuntimeError(
