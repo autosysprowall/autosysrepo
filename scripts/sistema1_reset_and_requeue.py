@@ -108,6 +108,13 @@ def approved_budget_files(children: list[dict[str, Any]]) -> list[dict[str, Any]
     )
 
 
+def active_items_to_delete(
+    children: list[dict[str, Any]],
+    queue_only: bool,
+) -> list[dict[str, Any]]:
+    return [] if queue_only else children
+
+
 def queue_budget(
     token: str,
     site_id: str,
@@ -146,6 +153,11 @@ def main() -> int:
     )
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--confirm-active-root", default="")
+    parser.add_argument(
+        "--queue-only",
+        action="store_true",
+        help="Vacía solamente la cola y reencola presupuestos; no toca Proyectos Activos.",
+    )
     args = parser.parse_args()
 
     settings = load_settings()
@@ -172,8 +184,9 @@ def main() -> int:
 
     print("Sistema 1 controlled reset plan:")
     print(f"- Active root: {active_root}")
-    print(f"- Active children to delete: {len(active_children)}")
-    for item in active_children:
+    active_to_delete = active_items_to_delete(active_children, args.queue_only)
+    print(f"- Active children to delete: {len(active_to_delete)}")
+    for item in active_to_delete:
         print(f"  - {item.get('name')}")
     print(f"- Queue items to delete: {len(queue_items)}")
     print(f"- Official budgets to requeue: {len(budgets)}")
@@ -188,7 +201,7 @@ def main() -> int:
             "Reinicio cancelado: no se encontraron presupuestos .xlsx en Presupuestos Aprobados."
         )
 
-    for item in active_children:
+    for item in active_to_delete:
         delete_drive_item(token, site_id, str(item["id"]))
     for item in queue_items:
         delete_queue_item(token, site_id, str(queue_list["id"]), str(item["id"]))
@@ -199,7 +212,7 @@ def main() -> int:
     ]
     print(
         "Controlled reset completed: "
-        f"deleted_active={len(active_children)} "
+        f"deleted_active={len(active_to_delete)} "
         f"deleted_queue={len(queue_items)} "
         f"requeued={len(created_ids)} "
         f"queue_ids={','.join(created_ids)}"

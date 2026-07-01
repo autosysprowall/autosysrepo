@@ -12,9 +12,16 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from sistema1_reset_and_requeue import (  # noqa: E402
+    active_items_to_delete,
     approved_budget_files,
     validate_roots,
 )
+
+
+def test_queue_only_never_selects_active_items_for_deletion() -> None:
+    children = [{"id": "active-project", "name": "Proyecto existente"}]
+    assert active_items_to_delete(children, queue_only=True) == []
+    assert active_items_to_delete(children, queue_only=False) == children
 
 
 def test_validate_roots_accepts_only_expected_system1_paths() -> None:
