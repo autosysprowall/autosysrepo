@@ -494,6 +494,23 @@ def print_summary(site: dict[str, Any], queue_list: dict[str, Any], items: list[
                 f"filename={fields.get('Filename')!r} "
                 f"fileid={fields.get('FileID')!r}"
             )
+    terminal = [
+        item
+        for item in items
+        if str((item.get("fields") or {}).get("Estado") or "").casefold()
+        in {"requierevision", "error"}
+    ]
+    if terminal:
+        print("Recent rejection/error detail:")
+        for item in terminal[:20]:
+            fields = item.get("fields") or {}
+            print(
+                "- "
+                f"id={item.get('id')} "
+                f"title={fields.get('Title')!r} "
+                f"estado={fields.get('Estado')!r} "
+                f"error={trim_note(fields.get('UltimoError'), 240)!r}"
+            )
 
 
 def process_queue_item(
@@ -702,10 +719,11 @@ def main() -> int:
             for item in pending:
                 result = process_queue_item(token, site["id"], queue_list, control_list, settings, item, work_dir)
                 results.append(result)
-                print(
-                    f"Processed item id={result.item_id} status={result.status} "
-                    f"project={result.project_id or '-'} gantt={result.gantt_url or '-'}"
-                )
+            print(
+                f"Processed item id={result.item_id} status={result.status} "
+                f"project={result.project_id or '-'} gantt={result.gantt_url or '-'} "
+                f"message={result.message or '-'}"
+            )
         errors = [result for result in results if result.status == "Error"]
         if errors:
             print("Errores de procesamiento:")
