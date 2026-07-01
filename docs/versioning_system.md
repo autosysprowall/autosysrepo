@@ -64,7 +64,7 @@ se actualiza con el WORKING aprobado.
 - `FechaUltimoVersionado`;
 - `FechaAprobacion`;
 - `EstadoGantt = Aprobado / Versionado`;
-- `MotivoUltimoVersionado`;
+- `MotivoUltimoVersionado`, si esa columna opcional existe;
 - `UltimoErrorVersionado` vacío.
 
 Ante un fallo no se aprueba el proyecto, la solicitud permanece activa,
