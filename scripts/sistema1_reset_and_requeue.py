@@ -18,6 +18,7 @@ from sistema1_poll_queue import (
     resolve_list,
     resolve_site,
 )
+from sistema1_gantt_builder import derive_project_identity
 
 
 DEFAULT_APPROVED_ROOT = "Proyectos/Presupuestos Aprobados"
@@ -158,6 +159,14 @@ def main() -> int:
         action="store_true",
         help="Vacía solamente la cola y reencola presupuestos; no toca Proyectos Activos.",
     )
+    parser.add_argument(
+        "--reset-related-tracking",
+        action="store_true",
+        help=(
+            "Elimina control y notificaciones solamente para los ProyectoID "
+            "derivados de los presupuestos reencolados."
+        ),
+    )
     args = parser.parse_args()
 
     settings = load_settings()
@@ -181,6 +190,51 @@ def main() -> int:
     queue_items = list_all_queue_items(token, site_id, str(queue_list["id"]))
     source_children = list_drive_children(token, site_id, approved_root)
     budgets = approved_budget_files(source_children)
+    project_ids = {
+        derive_project_identity(str(item.get("name") or "")).project_id.casefold()
+        for item in budgets
+    }
+    related_control_items: list[dict[str, Any]] = []
+    related_notification_items: list[dict[str, Any]] = []
+    control_list = None
+    notification_list = None
+    if args.reset_related_tracking:
+        control_list = resolve_list(
+            token,
+            site_id,
+            settings.control_list_name,
+            settings.control_list_id,
+        )
+        notification_list = resolve_list(
+            token,
+            site_id,
+            os.getenv("SP_NOTIFICATION_LIST_NAME", "Cola_Notificaciones_Gantt"),
+            os.getenv("SP_NOTIFICATION_LIST_ID") or None,
+        )
+        related_control_items = [
+            item
+            for item in list_all_queue_items(
+                token,
+                site_id,
+                str(control_list["id"]),
+            )
+            if str((item.get("fields") or {}).get("ProyectoID") or "")
+            .strip()
+            .casefold()
+            in project_ids
+        ]
+        related_notification_items = [
+            item
+            for item in list_all_queue_items(
+                token,
+                site_id,
+                str(notification_list["id"]),
+            )
+            if str((item.get("fields") or {}).get("ProyectoID") or "")
+            .strip()
+            .casefold()
+            in project_ids
+        ]
 
     print("Sistema 1 controlled reset plan:")
     print(f"- Active root: {active_root}")
@@ -192,6 +246,11 @@ def main() -> int:
     print(f"- Official budgets to requeue: {len(budgets)}")
     for item in budgets:
         print(f"  - {item.get('name')}")
+    print(f"- Related control items to delete: {len(related_control_items)}")
+    print(
+        "- Related notification items to delete: "
+        f"{len(related_notification_items)}"
+    )
 
     if not args.execute:
         print("Dry run only. Use --execute with the exact --confirm-active-root value.")
@@ -205,6 +264,22 @@ def main() -> int:
         delete_drive_item(token, site_id, str(item["id"]))
     for item in queue_items:
         delete_queue_item(token, site_id, str(queue_list["id"]), str(item["id"]))
+    if control_list:
+        for item in related_control_items:
+            delete_queue_item(
+                token,
+                site_id,
+                str(control_list["id"]),
+                str(item["id"]),
+            )
+    if notification_list:
+        for item in related_notification_items:
+            delete_queue_item(
+                token,
+                site_id,
+                str(notification_list["id"]),
+                str(item["id"]),
+            )
 
     created_ids = [
         queue_budget(token, site_id, str(queue_list["id"]), approved_root, item)
@@ -214,6 +289,8 @@ def main() -> int:
         "Controlled reset completed: "
         f"deleted_active={len(active_to_delete)} "
         f"deleted_queue={len(queue_items)} "
+        f"deleted_control={len(related_control_items)} "
+        f"deleted_notifications={len(related_notification_items)} "
         f"requeued={len(created_ids)} "
         f"queue_ids={','.join(created_ids)}"
     )
