@@ -14,6 +14,7 @@ if str(SCRIPTS) not in sys.path:
 from sistema1_reset_and_requeue import (  # noqa: E402
     active_items_to_delete,
     approved_budget_files,
+    drive_item_created_by_email,
     sharepoint_file_identifier,
     validate_roots,
 )
@@ -87,3 +88,9 @@ def test_sharepoint_file_identifier_is_double_url_encoded() -> None:
         "%252FDocumentos%2Bcompartidos%252FProyectos%252F"
         "Presupuestos%2BAprobados%252F2025-111%2BPresupuesto%2Bprueba.xlsx"
     )
+
+
+def test_drive_item_created_by_email_uses_graph_metadata() -> None:
+    assert drive_item_created_by_email(
+        {"createdBy": {"user": {"email": "comercial@example.com"}}}
+    ) == "comercial@example.com"

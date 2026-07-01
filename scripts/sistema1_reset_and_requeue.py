@@ -177,6 +177,12 @@ def sharepoint_file_identifier(folder_path: str, file_name: str) -> str:
     return quote_plus(quote_plus(server_relative_path, safe=""), safe="")
 
 
+def drive_item_created_by_email(item: dict[str, Any]) -> str:
+    created_by = item.get("createdBy") or {}
+    user = created_by.get("user") or {}
+    return str(user.get("email") or user.get("userPrincipalName") or "").strip()
+
+
 def queue_budget(
     token: str,
     site_id: str,
@@ -194,6 +200,7 @@ def queue_budget(
         "FileID": sharepoint_file_identifier(approved_root, name),
         "FolderPath": f"Documentos compartidos/{normalized_path(approved_root)}/",
         "CreatedTime": now,
+        "CreatedByEmail": drive_item_created_by_email(item),
         "Intentos": "0",
         "UltimoError": "",
         "Notas": "Reencolado por reinicio controlado de Sistema 1.",

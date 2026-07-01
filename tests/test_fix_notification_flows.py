@@ -21,16 +21,20 @@ def email_action() -> dict:
 
 
 def test_return_flow_uses_expression_for_subject_and_error() -> None:
-    corrected = corrected_return_definition(email_action())
+    corrected = corrected_return_definition(email_action(), "budget-guide")
     parameters = corrected["actions"]["Send_an_email_(V2)"]["inputs"]["parameters"]
 
     assert parameters["emailMessage/Subject"].startswith("@concat(")
-    assert "Filename" in parameters["emailMessage/Subject"]
+    assert parameters["emailMessage/To"] == "auto.sys@prowallpanama.com"
+    assert parameters["emailMessage/Cc"] == ""
+    assert "Presupuesto No Válido Proyecto" in parameters["emailMessage/Subject"]
     assert "UltimoError" in parameters["emailMessage/Body"]
+    assert "CreatedByEmail" in parameters["emailMessage/Body"]
+    assert parameters["emailMessage/Attachments"][-1]["ContentBytes"] == "budget-guide"
 
 
 def test_assignment_flow_uses_notification_queue_fields() -> None:
-    corrected = corrected_assignment_definition(email_action())
+    corrected = corrected_assignment_definition(email_action(), "engineer-guide")
     parameters = corrected["actions"]["Send_an_email_(V2)"]["inputs"]["parameters"]
 
     assert parameters["emailMessage/To"] == "@triggerBody()?['To']"
@@ -49,3 +53,9 @@ def test_assignment_flow_uses_notification_queue_fields() -> None:
     }
     assignment = switch["cases"]["Assignment"]["actions"]["Confirm_assignment"]
     assert assignment["inputs"]["parameters"]["item/CorreoAsignacionEnviado"] is True
+    assert parameters["emailMessage/Attachments"] == [
+        {
+            "Name": "Guia_AutoSys_Ingenieros_Residentes_Planta.pdf",
+            "ContentBytes": "engineer-guide",
+        }
+    ]

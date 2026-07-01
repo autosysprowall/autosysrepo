@@ -344,8 +344,6 @@ def assignment_notification(record: ControlRecord, assigned: datetime, deadline:
         "Se requiere la planificación de las actividades listadas en la "
         "plantilla adjunta.\n\n"
         f"Proyecto: {project}\n"
-        f"Fecha de asignación: {assigned.date().isoformat()}\n"
-        f"Fecha límite: {deadline.date().isoformat()}\n\n"
         f"Link de acceso de editor al diagrama:\n{record.gantt_link}"
     )
     guide = engineer_guide_line()

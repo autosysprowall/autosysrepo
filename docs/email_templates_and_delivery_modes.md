@@ -17,7 +17,8 @@ esas cuentas sin permisos **Send As**.
 - todas las notificaciones de Gantt se redirigen exclusivamente a autosys;
 - se elimina el CC real;
 - el asunto recibe `[PRUEBA]`;
-- el cuerpo muestra los destinatarios reales previstos para auditoría.
+- el cuerpo muestra `Destinatario real previsto` y `CC real previsto` para
+  auditar los correos extraídos sin contactar a esas personas.
 
 Si un presupuesto aceptado no contiene un correo válido del ingeniero, `test`
 encola una vista previa para autosys pero no concede permisos ni marca el
@@ -41,10 +42,13 @@ Cambiar el modo solo en la variable de repositorio
 - To: `IngenieroEmail`;
 - CC: `SupervisoresEmail`;
 - asunto: `Asignación Cronograma Proyecto {NombreProyecto}`;
-- cuerpo: texto de asignación, fechas, `GanttWorkingLink` y guía de ingenieros.
+- cuerpo: texto final de `correos.txt`, nombre del proyecto y
+  `GanttWorkingLink`;
+- adjunto: `Guia_AutoSys_Ingenieros_Residentes_Planta.pdf`.
 
-La guía se configura con la variable `ENGINEER_GUIDE_URL`. Mientras esté
-vacía, se omite completamente del correo.
+La guía está incorporada como adjunto en `PA_S2_EnviarNotificacionesGantt`.
+`ENGINEER_GUIDE_URL` puede conservar un enlace adicional, pero no sustituye el
+PDF adjunto.
 
 ## Advertencia 1 y 2
 
@@ -67,8 +71,10 @@ Este correo lo envía `PA_S1_DevolverPresupuestoInvalido`:
 - asunto live: `Presupuesto No Válido Proyecto {NombreProyecto}`;
 - asunto test: `[PRUEBA] Presupuesto No Válido Proyecto {NombreProyecto}`;
 - adjunta el presupuesto original;
+- adjunta `Guia_AutoSys_Comercial_Presupuesto.pdf`;
 - incluye `FileLink` y `UltimoError`;
-- la guía de presupuesto se omite mientras no exista.
+- en prueba muestra `CreatedByEmail` y el CC real previsto dentro del cuerpo,
+  pero envía exclusivamente a autosys.
 
 En Power Automate deben existir dos variables:
 

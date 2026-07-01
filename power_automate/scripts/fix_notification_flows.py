@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import copy
 import json
 from pathlib import Path
@@ -21,6 +22,10 @@ RETURN_FLOW_ID = "56a4ec6a-5fd0-4c74-b9cb-7c65b0375928"
 ASSIGNMENT_FLOW_ID = "e5dfdb04-f552-4de8-ad90-df91abfa862d"
 SITE_URL = "https://sciprowall.sharepoint.com/sites/PROYECTOSPROWALL"
 CONTROL_LIST_ID = "afe5544b-3f60-40e4-81a0-01e86920f5f2"
+TEST_RECIPIENT = "auto.sys@prowallpanama.com"
+RETURN_LIVE_CC = "jaime.madrid@prowallpanama.com"
+BUDGET_GUIDE_NAME = "Guia_AutoSys_Comercial_Presupuesto.pdf"
+ENGINEER_GUIDE_NAME = "Guia_AutoSys_Ingenieros_Residentes_Planta.pdf"
 
 
 def acquire_flow_token(cache_path: Path) -> str:
@@ -92,28 +97,76 @@ def patch_flow(
         )
 
 
-def corrected_return_definition(definition: dict[str, Any]) -> dict[str, Any]:
+def corrected_return_definition(
+    definition: dict[str, Any],
+    budget_guide_base64: str = "",
+) -> dict[str, Any]:
     result = copy.deepcopy(definition)
     parameters = result["actions"]["Send_an_email_(V2)"]["inputs"]["parameters"]
+    parameters["emailMessage/To"] = TEST_RECIPIENT
+    parameters["emailMessage/Cc"] = ""
     parameters["emailMessage/Subject"] = (
-        "@concat('[BORRADOR] Presupuesto devuelto - ', "
-        "coalesce(triggerBody()?['Filename'], triggerBody()?['Title'], 'sin nombre'))"
+        "@concat('[PRUEBA] Presupuesto No Válido Proyecto ', "
+        "if(empty(triggerBody()?['ProyectoID']), "
+        "coalesce(triggerBody()?['Title'], triggerBody()?['Filename'], "
+        "'sin identificar'), triggerBody()?['ProyectoID']))"
     )
     parameters["emailMessage/Body"] = (
-        "@concat('<p class=\"editor-paragraph\">"
-        "BORRADOR PENDIENTE DE REDACCIÓN. Motivo técnico: ', "
-        "coalesce(triggerBody()?['UltimoError'], 'No especificado'), '</p>')"
+        "@concat("
+        "'<p>El presupuesto del proyecto ', "
+        "if(empty(triggerBody()?['ProyectoID']), "
+        "coalesce(triggerBody()?['Title'], triggerBody()?['Filename'], "
+        "'sin identificar'), triggerBody()?['ProyectoID']), "
+        "' no puede ser procesado por AutoSys. Por favor procurar mantener "
+        "el formato sugerido en la guía adjunta.</p>', "
+        "'<p><strong>Motivo técnico:</strong> ', "
+        "coalesce(triggerBody()?['UltimoError'], 'No especificado'), '</p>', "
+        "'<p><strong>Archivo:</strong> ', "
+        "coalesce(triggerBody()?['FileLink'], 'Sin enlace disponible'), '</p>', "
+        "'<hr><p><strong>MODO PRUEBA</strong><br>', "
+        "'Destinatario real previsto: ', "
+        "if(empty(triggerBody()?['CreatedByEmail']), '(vacío)', "
+        "triggerBody()?['CreatedByEmail']), '<br>', "
+        f"'CC real previsto: {RETURN_LIVE_CC}<br>', "
+        f"'Este correo fue redirigido exclusivamente a {TEST_RECIPIENT}."
+        "</p>')"
     )
+    attachments = [
+        attachment
+        for attachment in parameters.get("emailMessage/Attachments", [])
+        if attachment.get("Name") != BUDGET_GUIDE_NAME
+    ]
+    if budget_guide_base64:
+        attachments.append(
+            {
+                "Name": BUDGET_GUIDE_NAME,
+                "ContentBytes": budget_guide_base64,
+            }
+        )
+    parameters["emailMessage/Attachments"] = attachments
     return result
 
 
-def corrected_assignment_definition(definition: dict[str, Any]) -> dict[str, Any]:
+def corrected_assignment_definition(
+    definition: dict[str, Any],
+    engineer_guide_base64: str = "",
+) -> dict[str, Any]:
     result = copy.deepcopy(definition)
     parameters = result["actions"]["Send_an_email_(V2)"]["inputs"]["parameters"]
     parameters["emailMessage/To"] = "@triggerBody()?['To']"
     parameters["emailMessage/Cc"] = "@triggerBody()?['Cc']"
     parameters["emailMessage/Subject"] = "@triggerBody()?['Subject']"
     parameters["emailMessage/Body"] = "@triggerBody()?['Body']"
+    parameters["emailMessage/Attachments"] = (
+        [
+            {
+                "Name": ENGINEER_GUIDE_NAME,
+                "ContentBytes": engineer_guide_base64,
+            }
+        ]
+        if engineer_guide_base64
+        else []
+    )
     result["actions"]["Confirm_delivery_in_control"] = {
         "runAfter": {"Update_item": ["Succeeded"]},
         "cases": {
@@ -211,6 +264,14 @@ def describe_changes(
     print(f"- Cc: {assignment_email['emailMessage/Cc']}")
     print(f"- Subject: {assignment_email['emailMessage/Subject']}")
     print(f"- Body: {assignment_email['emailMessage/Body']}")
+    print(
+        "- Guía de ingenieros adjunta: "
+        f"{len(assignment_email.get('emailMessage/Attachments', [])) == 1}"
+    )
+    print(
+        "- Guía de presupuesto adjunta: "
+        f"{len(return_email.get('emailMessage/Attachments', [])) >= 2}"
+    )
     print("- Confirmación en Control_Gantt_Asignaciones: 4 tipos")
 
 
@@ -219,17 +280,32 @@ def main() -> int:
         description="Corrige bindings dinámicos de los flujos de notificación."
     )
     parser.add_argument("--token-cache", default=".dataverse_token_cache.json")
+    parser.add_argument(
+        "--assets-dir",
+        default="power_automate/assets",
+    )
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
 
+    assets_dir = Path(args.assets_dir)
+    budget_guide = base64.b64encode(
+        (assets_dir / BUDGET_GUIDE_NAME).read_bytes()
+    ).decode("ascii")
+    engineer_guide = base64.b64encode(
+        (assets_dir / ENGINEER_GUIDE_NAME).read_bytes()
+    ).decode("ascii")
     token = acquire_flow_token(Path(args.token_cache))
     return_flow = get_flow(token, RETURN_FLOW_ID)
     assignment_flow = get_flow(token, ASSIGNMENT_FLOW_ID)
     return_properties = return_flow["properties"]
     assignment_properties = assignment_flow["properties"]
-    return_definition = corrected_return_definition(return_properties["definition"])
+    return_definition = corrected_return_definition(
+        return_properties["definition"],
+        budget_guide,
+    )
     assignment_definition = corrected_assignment_definition(
-        assignment_properties["definition"]
+        assignment_properties["definition"],
+        engineer_guide,
     )
     describe_changes(return_definition, assignment_definition)
 
