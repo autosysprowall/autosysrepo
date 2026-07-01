@@ -19,6 +19,12 @@ esas cuentas sin permisos **Send As**.
 - el asunto recibe `[PRUEBA]`;
 - el cuerpo muestra los destinatarios reales previstos para auditoría.
 
+Si un presupuesto aceptado no contiene un correo válido del ingeniero, `test`
+encola una vista previa para autosys pero no concede permisos ni marca el
+proyecto como asignado. En `live` no se envía nada hasta completar
+`IngenieroEmail`. Antes de pasar a `live`, eliminar las vistas previas de prueba
+para que no bloqueen el envío real por idempotencia.
+
 ### `live`
 
 - `NOTIFICATION_DELIVERY_MODE=live`;

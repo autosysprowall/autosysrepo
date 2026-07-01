@@ -580,12 +580,34 @@ class AutomationService:
             record = replace(record, engineer_email=engineer, supervisors_email=supervisors)
 
         if not is_valid_email(engineer):
+            preview_queued = False
+            if (
+                normalized(os.getenv("NOTIFICATION_DELIVERY_MODE", "test"))
+                != "live"
+                and (record.gantt_link or record.gantt_identifier)
+                and not self.backend.notification_exists(
+                    record.item_id,
+                    "AsignacionGantt",
+                )
+            ):
+                assigned = record.assignment_date or self.now
+                deadline = record.deadline or assigned + timedelta(days=9)
+                self.backend.queue_notification(
+                    record,
+                    assignment_notification(record, assigned, deadline),
+                )
+                preview_queued = True
             self.backend.patch_control(
                 record.item_id,
                 {
                     "EstadoGantt": "Pendiente de asignación",
                     "UltimoErrorTracking": (
-                        "IngenieroEmail vacío o inválido; no se otorgó permiso ni se encoló correo."
+                        "IngenieroEmail vacío o inválido; no se otorgó permiso."
+                        + (
+                            " Se encoló una vista previa exclusivamente para autosys."
+                            if preview_queued
+                            else " No se encoló correo."
+                        )
                         + (f" Detalle de Datos: {metadata_error}" if metadata_error else "")
                     )[:500],
                     "TrackingIntentos": record.tracking_attempts + 1,

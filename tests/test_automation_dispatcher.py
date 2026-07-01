@@ -116,13 +116,35 @@ class AssignmentTests(unittest.TestCase):
 
     def test_missing_email_does_not_share_or_queue(self) -> None:
         backend = FakeBackend(WorkbookMetadata())
-        result = AutomationService(backend, NOW).assign(record(engineer_email=""))
+        with patch.dict(
+            "os.environ",
+            {"NOTIFICATION_DELIVERY_MODE": "live"},
+        ):
+            result = AutomationService(backend, NOW).assign(
+                record(engineer_email="")
+            )
 
         self.assertEqual("Pendiente de asignación", result.state)
         self.assertEqual([], backend.grants)
         self.assertEqual([], backend.notifications)
         self.assertTrue(
             any("vacío o inválido" in patch.get("UltimoErrorTracking", "") for _, patch in backend.patches)
+        )
+
+    def test_missing_email_queues_autosys_preview_only_in_test_mode(self) -> None:
+        backend = FakeBackend(WorkbookMetadata())
+        with patch.dict(
+            "os.environ",
+            {"NOTIFICATION_DELIVERY_MODE": "test"},
+        ):
+            result = AutomationService(backend, NOW).assign(
+                record(engineer_email="")
+            )
+        self.assertEqual("Pendiente de asignación", result.state)
+        self.assertEqual([], backend.grants)
+        self.assertEqual(
+            ["AsignacionGantt"],
+            [item.kind for _, item in backend.notifications],
         )
 
     def test_permission_failure_does_not_mark_permission_or_queue_email(self) -> None:
