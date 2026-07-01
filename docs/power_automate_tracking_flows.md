@@ -51,6 +51,19 @@ columnas de la tabla siguiente.
 
 ## Flujo 1: `PA_S2_EnviarNotificacionesGantt`
 
+Este es el flujo que debe editar el usuario para redactar los mensajes de:
+
+- asignación;
+- Advertencia 1;
+- Advertencia 2;
+- vencimiento.
+
+La cola entrega `TipoNotificacion`, `Subject`, `Body`, `To` y `Cc`. Para usar
+textos redactados directamente en Power Automate, agregar un `Switch` por
+`TipoNotificacion` antes de **Send an email (V2)** y editar el asunto/cuerpo en
+cada rama. Conservar los valores dinámicos de destinatarios, enlace, proyecto y
+fechas. No activar destinatarios reales hasta validar las cuatro ramas.
+
 ### Configuración activa de prueba
 
 El flujo activo usa el trigger **When an item is created or modified** sobre

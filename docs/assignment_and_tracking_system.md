@@ -4,10 +4,11 @@
 
 Sistema 2 comienza después de que Sistema 1 genera el Gantt WORKING. Comparte
 solamente ese archivo con el ingeniero, encola el correo de asignación, controla
-los días 3, 6 y 9, y sincroniza el estado `En revisión inicial`.
+los días 3, 6 y 9, sincroniza el estado `En revisión inicial` y, tras la
+aprobación humana, crea la versión inicial `v1.0`.
 
-No crea versiones, no mueve ni renombra archivos, no modifica Gantts cerrados y
-rechaza cualquier ruta que contenga `Proyectos Terminados`.
+No mueve ni renombra el WORKING, no modifica Gantts cerrados y rechaza cualquier
+ruta que contenga `Proyectos Terminados`.
 
 ## Arquitectura
 
@@ -182,6 +183,7 @@ retrasar los schedules. El fallback diario documentado, no activado, es
 
 ## Pendiente para una fase posterior
 
-Versionado completo (`v1.0`, `v1.1`, `v2.0`), historial, movimiento a
-versionados y cualquier correo de aprobación quedan expresamente fuera de
-Sistema 2.
+El MVP incorpora ahora la copia inicial `v1.0` después de una aprobación humana
+mediante `SolicitarVersionado`. Las revisiones `v1.1`, `v1.2`, `v2.0`, el
+historial formal y cualquier correo de aprobación permanecen fuera de Sistema
+2. Véase `docs/versioning_system.md`.
