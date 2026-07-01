@@ -35,6 +35,8 @@ START_DATE_COL = 5
 END_DATE_COL = 6
 DAILY_START_COL = 9
 DEFAULT_WINDOW_DAYS = 90
+CALENDAR_EXTENSION_DAYS = 365
+VERSION_BASELINE_SHEET = "AutosysVersionBaseline"
 CATEGORY_ORDER = ("PRELIMINARES", "FABRICA", "CAMPO", "ACABADOS")
 
 TOTAL_TERMS = ("subtotal", "total", "gran total", "itbms", "impuesto", "utilidad", "margen", "precio total")
@@ -1167,8 +1169,14 @@ def _prepare_gantt_sheet(wb):
     return wb.create_sheet("Gantt", 0)
 
 
-def _calendar_headers(ws, start: date, end: date, start_column: int) -> int:
-    days = (end - start).days + 1
+def _calendar_headers(
+    ws,
+    start: date,
+    contractual_end: date,
+    display_end: date,
+    start_column: int,
+) -> int:
+    days = (display_end - start).days + 1
     if days < 1:
         raise GanttReviewRequiredError("La ventana del proyecto tiene fechas inválidas.")
     if start_column + days - 1 > 16384:
@@ -1177,7 +1185,9 @@ def _calendar_headers(ws, start: date, end: date, start_column: int) -> int:
         )
 
     month_fill = PatternFill("solid", fgColor="244B6B")
+    extension_month_fill = PatternFill("solid", fgColor="C00000")
     day_fill = PatternFill("solid", fgColor="D9EAF7")
+    extension_day_fill = PatternFill("solid", fgColor="F4CCCC")
     thin = Side(style="thin", color="D9E2EA")
     month_start = start_column
     active_month = (start.year, start.month)
@@ -1188,11 +1198,13 @@ def _calendar_headers(ws, start: date, end: date, start_column: int) -> int:
         day_cell = ws.cell(HEADER_ROW, column, current)
         day_cell.number_format = "d"
         day_cell.font = Font(bold=True, size=8, color="1F2937")
-        day_cell.fill = day_fill
+        in_extension = current > contractual_end
+        day_cell.fill = extension_day_fill if in_extension else day_fill
         day_cell.alignment = Alignment(horizontal="center", vertical="center")
         day_cell.border = Border(left=thin, right=thin, top=thin, bottom=thin)
         weekday_cell = ws.cell(WEEKDAY_ROW, column, WEEKDAYS_ES[current.weekday()])
         weekday_cell.font = Font(size=7, color="4B5563")
+        weekday_cell.fill = extension_day_fill if in_extension else day_fill
         weekday_cell.alignment = Alignment(horizontal="center", vertical="center")
         weekday_cell.border = Border(left=thin, right=thin, top=thin, bottom=thin)
 
@@ -1209,7 +1221,11 @@ def _calendar_headers(ws, start: date, end: date, start_column: int) -> int:
                 )
             month_cell = ws.cell(HEADER_ROW - 1, month_start)
             month_cell.value = f"{MONTHS_ES[active_month[1]]} {active_month[0]}"
-            month_cell.fill = month_fill
+            month_cell.fill = (
+                extension_month_fill
+                if date(active_month[0], active_month[1], 1) > contractual_end
+                else month_fill
+            )
             month_cell.font = Font(bold=True, color="FFFFFF", size=9)
             month_cell.alignment = Alignment(horizontal="center", vertical="center")
             month_start = column + 1
@@ -1277,6 +1293,7 @@ def _write_gantt_rows(
     extraction: BudgetExtractionResult,
     headers: list[str],
     calendar_start_column: int,
+    contractual_end_column: int,
     calendar_end_column: int,
 ) -> tuple[list[int], int]:
     indexes = _base_column_indexes(headers)
@@ -1404,7 +1421,9 @@ def _write_gantt_rows(
                 or header in extra_cost_by_header,
             )
         for header in ("Fecha de Inicio", "Fecha de Fin"):
-            ws.cell(output_row, indexes[header]).number_format = "dd/mm/yyyy"
+            date_cell = ws.cell(output_row, indexes[header])
+            date_cell.number_format = "dd/mm/yyyy"
+            date_cell.fill = PatternFill("solid", fgColor="D9EAF7")
         quantity_cell = ws.cell(output_row, indexes["Cantidad"])
         if quantity_cell.number_format == "General":
             quantity_cell.number_format = "#,##0.00"
@@ -1432,7 +1451,10 @@ def _write_gantt_rows(
         )
         for column in range(calendar_start_column, calendar_end_column + 1):
             calendar_cell = ws.cell(output_row, column)
-            if source_activity_cell is not None:
+            if column > contractual_end_column:
+                calendar_cell.fill = PatternFill("solid", fgColor="FCE8E6")
+                calendar_cell.font = Font(color="9C0006")
+            elif source_activity_cell is not None:
                 calendar_cell.fill = copy(source_activity_cell.fill)
                 calendar_cell.font = copy(source_activity_cell.font)
             calendar_cell.border = Border(
@@ -1643,6 +1665,54 @@ def _metadata_sheet(wb, identity: ProjectIdentity, source_file: str, source_shee
     ws.column_dimensions["A"].width = max(ws.column_dimensions["A"].width or 0, 28)
     ws.column_dimensions["B"].width = max(ws.column_dimensions["B"].width or 0, 90)
     ws.freeze_panes = None
+
+
+def _version_baseline_sheet(
+    wb,
+    gantt_ws,
+    headers: list[str],
+    activity_rows: list[int],
+    contractual_end: date,
+) -> None:
+    if VERSION_BASELINE_SHEET in wb.sheetnames:
+        wb.remove(wb[VERSION_BASELINE_SHEET])
+    ws = wb.create_sheet(VERSION_BASELINE_SHEET)
+    ws.append(["AUTOSYS_VERSION_BASELINE", "Valor"])
+    ws.append(["Fecha Final contractual", contractual_end])
+    indexes = _base_column_indexes(headers)
+    for header, column in indexes.items():
+        normalized_header = normalize_text(header)
+        if not any(
+            term in normalized_header
+            for term in ("costo total", "precio total")
+        ):
+            continue
+        if any(term in normalized_header for term in ("utilidad", "margen")):
+            continue
+        total = 0.0
+        for row_number in activity_rows:
+            value = gantt_ws.cell(row_number, column).value
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                total += float(value)
+                continue
+            if (
+                isinstance(value, str)
+                and value.startswith("=")
+                and "Cantidad" in indexes
+                and "Costo Unitario" in indexes
+            ):
+                quantity = gantt_ws.cell(row_number, indexes["Cantidad"]).value
+                unit_cost = gantt_ws.cell(
+                    row_number,
+                    indexes["Costo Unitario"],
+                ).value
+                if isinstance(quantity, (int, float)) and isinstance(
+                    unit_cost,
+                    (int, float),
+                ):
+                    total += float(quantity) * float(unit_cost)
+        ws.append([header, total])
+    ws.sheet_state = "hidden"
 
 
 def _assessment_sheet(
@@ -1946,10 +2016,15 @@ def build_gantt_workbook(
         _link_source_formulas(extraction, wb[selected_sheet])
         ws = _prepare_gantt_sheet(wb)
         calendar_start_column = len(headers) + 1
+        display_end = window_end + timedelta(days=CALENDAR_EXTENSION_DAYS)
+        contractual_end_column = (
+            calendar_start_column + (window_end - window_start).days
+        )
         calendar_end_column = _calendar_headers(
             ws,
             window_start,
             window_end,
+            display_end,
             calendar_start_column,
         )
         activity_rows, data_end_row = _write_gantt_rows(
@@ -1958,6 +2033,7 @@ def build_gantt_workbook(
             extraction,
             headers,
             calendar_start_column,
+            contractual_end_column,
             calendar_end_column,
         )
         _style_gantt_sheet(
@@ -1982,6 +2058,13 @@ def build_gantt_workbook(
             source_file_name,
             selected_sheet,
             notes,
+        )
+        _version_baseline_sheet(
+            wb,
+            ws,
+            headers,
+            activity_rows,
+            window_end,
         )
         _assessment_sheet(wb, extraction)
         wb.calculation.calcMode = "auto"

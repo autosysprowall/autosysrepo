@@ -220,6 +220,15 @@ Si falta uno de los extremos, `Duracion` puede expresarse en días, semanas,
 meses o años y se usa para calcular únicamente el límite visual del proyecto.
 Nunca se inventan fechas por actividad.
 
+El calendario visible se extiende 365 días después de la `Fecha Final`
+contractual. El período contractual se muestra en azul y la extensión en rojo.
+Las columnas `Fecha de Inicio` y `Fecha de Fin` de cada actividad usan el mismo
+sombreado azul. Una actividad que termina en el tramo rojo obliga a `v2.0`
+cuando se solicita el versionado.
+
+La hoja oculta `AutosysVersionBaseline` conserva los totales financieros
+originales necesarios para detectar aumentos antes de que exista `v1.0`.
+
 ## Formato y workbook base
 
 El repositorio no contenía una plantilla binaria neutral. Las plantillas

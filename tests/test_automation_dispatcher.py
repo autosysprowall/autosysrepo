@@ -19,6 +19,7 @@ from src.automation_dispatcher import (
     extract_workbook_metadata,
     run_system2,
 )
+from src.gantt_versioning import decide_version
 
 
 NOW = datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc)
@@ -305,6 +306,40 @@ class StatusAndMetadataTests(unittest.TestCase):
 
 
 class VersioningTests(unittest.TestCase):
+    @staticmethod
+    def gantt_bytes(
+        cost: float,
+        activity_end: datetime | None = None,
+        baseline_cost: float | None = None,
+    ) -> bytes:
+        workbook = Workbook()
+        gantt = workbook.active
+        gantt.title = "Gantt"
+        gantt.append([])
+        for _ in range(8):
+            gantt.append([])
+        gantt.append(
+            [
+                "Actividad",
+                "Fecha de Inicio",
+                "Fecha de Fin",
+                "Costo Total",
+            ]
+        )
+        gantt.append(["Actividad 1", None, activity_end, cost])
+        datos = workbook.create_sheet("Datos")
+        datos.append(["Fecha Final", datetime(2026, 12, 31)])
+        if baseline_cost is not None:
+            baseline = workbook.create_sheet("AutosysVersionBaseline")
+            baseline.append(["AUTOSYS_VERSION_BASELINE", "Valor"])
+            baseline.append(["Fecha Final contractual", datetime(2026, 12, 31)])
+            baseline.append(["Costo Total", baseline_cost])
+            baseline.sheet_state = "hidden"
+        stream = io.BytesIO()
+        workbook.save(stream)
+        workbook.close()
+        return stream.getvalue()
+
     def test_requested_review_creates_v1_and_closes_control(self) -> None:
         backend = FakeBackend()
         current = record(
@@ -324,7 +359,7 @@ class VersioningTests(unittest.TestCase):
         self.assertFalse(merged["SolicitarVersionado"])
         self.assertIn("FechaAprobacion", merged)
 
-    def test_existing_v1_recovers_flags_without_duplicate_copy(self) -> None:
+    def test_existing_v1_is_reassessed_before_reapproval(self) -> None:
         backend = FakeBackend()
         current = record(
             state="En revisión inicial",
@@ -335,9 +370,41 @@ class VersioningTests(unittest.TestCase):
 
         result = AutomationService(backend, NOW).version(current)
 
-        self.assertEqual([], backend.versions)
+        self.assertEqual(["10"], backend.versions)
         self.assertFalse(result.version_requested)
         self.assertEqual("Aprobado / Versionado", result.state)
+
+    def test_cost_increase_selects_v2(self) -> None:
+        decision = decide_version(
+            self.gantt_bytes(1200),
+            self.gantt_bytes(1000),
+        )
+        self.assertEqual("v2.0", decision.version)
+        self.assertTrue(decision.cost_increase)
+
+    def test_first_approval_uses_embedded_budget_baseline(self) -> None:
+        decision = decide_version(
+            self.gantt_bytes(1200, baseline_cost=1000),
+            None,
+        )
+        self.assertEqual("v2.0", decision.version)
+        self.assertTrue(decision.cost_increase)
+
+    def test_cost_reduction_stays_v1(self) -> None:
+        decision = decide_version(
+            self.gantt_bytes(900),
+            self.gantt_bytes(1000),
+        )
+        self.assertEqual("v1.0", decision.version)
+        self.assertFalse(decision.cost_increase)
+
+    def test_activity_after_contractual_end_selects_v2(self) -> None:
+        decision = decide_version(
+            self.gantt_bytes(1000, datetime(2027, 1, 2)),
+            self.gantt_bytes(1000),
+        )
+        self.assertEqual("v2.0", decision.version)
+        self.assertTrue(decision.schedule_overrun)
 
     def test_version_requires_review_state(self) -> None:
         backend = FakeBackend()
@@ -396,6 +463,17 @@ class VersioningTests(unittest.TestCase):
 
         with (
             patch("src.automation_dispatcher.path_exists", return_value=False),
+            patch(
+                "src.automation_dispatcher.decide_version",
+                return_value=type(
+                    "Decision",
+                    (),
+                    {
+                        "version": "v1.0",
+                        "reasons": ("Sin aumento.",),
+                    },
+                )(),
+            ),
             patch("src.automation_dispatcher.ensure_drive_folder") as ensure_folder,
             patch(
                 "src.automation_dispatcher.graph_put_bytes",
@@ -419,7 +497,7 @@ class VersioningTests(unittest.TestCase):
             put_bytes.call_args.args[1],
         )
 
-    def test_sharepoint_backend_reuses_existing_v1(self) -> None:
+    def test_sharepoint_backend_replaces_existing_target_after_reassessment(self) -> None:
         backend = SharePointBackend.__new__(SharePointBackend)
         backend.token = "token"
         backend.site_id = "site-id"
@@ -438,20 +516,32 @@ class VersioningTests(unittest.TestCase):
             "name": "2026-001_gantt_v1.0.xlsx",
             "webUrl": "https://contoso/versionados/2026-001_gantt_v1.0.xlsx",
         }
+        backend._download_drive_item = lambda item: b"xlsx-content"
 
         with (
             patch("src.automation_dispatcher.path_exists", return_value=True),
             patch(
+                "src.automation_dispatcher.decide_version",
+                return_value=type(
+                    "Decision",
+                    (),
+                    {
+                        "version": "v1.0",
+                        "reasons": ("Sin aumento.",),
+                    },
+                )(),
+            ),
+            patch(
                 "src.automation_dispatcher.get_drive_item_by_path",
                 return_value=existing,
             ),
+            patch("src.automation_dispatcher.ensure_drive_folder"),
             patch("src.automation_dispatcher.graph_put_bytes") as put_bytes,
         ):
             artifact = backend.create_initial_version(record())
 
         self.assertFalse(artifact.created)
-        self.assertEqual("existing-version-id", artifact.identifier)
-        put_bytes.assert_not_called()
+        put_bytes.assert_called_once()
 
 
 class DispatcherTests(unittest.TestCase):

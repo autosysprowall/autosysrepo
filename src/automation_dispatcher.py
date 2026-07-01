@@ -18,6 +18,8 @@ from typing import Any, Protocol
 import requests
 from openpyxl import load_workbook
 
+from src.gantt_versioning import decide_version
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -83,6 +85,7 @@ CONTROL_COLUMNS: dict[str, dict[str, Any]] = {
     "FechaUltimoVersionado": {"dateTime": {"format": "dateTime"}},
     "VersionadoIntentos": {"number": {}},
     "UltimoErrorVersionado": {"text": {"allowMultipleLines": True}},
+    "MotivoUltimoVersionado": {"text": {"allowMultipleLines": True}},
 }
 
 NOTIFICATION_COLUMNS: dict[str, dict[str, Any]] = {
@@ -289,6 +292,8 @@ class VersionArtifact:
     web_url: str
     file_name: str
     created: bool
+    version: str = "v1.0"
+    reasons: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -446,25 +451,6 @@ class AutomationService:
             )
             return record
 
-        version_complete = (
-            normalized(record.current_version) in {"v1.0", "1.0"}
-            and bool(record.version_link or record.version_identifier)
-        )
-        if version_complete:
-            self.backend.patch_control(
-                record.item_id,
-                {
-                    "SolicitarVersionado": False,
-                    "EstadoGantt": "Aprobado / Versionado",
-                    "UltimoErrorVersionado": "",
-                },
-            )
-            return replace(
-                record,
-                version_requested=False,
-                state="Aprobado / Versionado",
-            )
-
         if normalized(record.state) != normalized(REVIEW_STATE):
             self.backend.patch_control(
                 record.item_id,
@@ -491,23 +477,24 @@ class AutomationService:
 
         updates = {
             "SolicitarVersionado": False,
-            "VersionActual": "v1.0",
+            "VersionActual": artifact.version,
             "GanttVersionLink": artifact.web_url,
             "GanttVersionIdentifier": artifact.identifier,
             "FechaUltimoVersionado": iso_utc(self.now),
             "FechaAprobacion": iso_utc(self.now),
             "EstadoGantt": "Aprobado / Versionado",
             "UltimoErrorVersionado": "",
+            "MotivoUltimoVersionado": " | ".join(artifact.reasons),
         }
         self.backend.patch_control(record.item_id, updates)
         print(
-            f"Versioned control={record.item_id} version=v1.0 "
+            f"Versioned control={record.item_id} version={artifact.version} "
             f"file={artifact.file_name} created={artifact.created}"
         )
         return replace(
             record,
             version_requested=False,
-            current_version="v1.0",
+            current_version=artifact.version,
             version_link=artifact.web_url,
             version_identifier=artifact.identifier,
             versioned_at=self.now,
@@ -911,35 +898,40 @@ class SharePointBackend:
         project_id = re.sub(r'[<>:"/\\|?*]+', "_", record.project_id.strip())
         if not project_id:
             raise RuntimeError("ProyectoID vacío; no se puede nombrar la versión.")
-        version_name = f"{project_id}_gantt_v1.0.xlsx"
         gantts_folder = working_folder.rsplit("/", 1)[0]
         version_folder = f"{gantts_folder}/versionados"
-        version_path = f"{version_folder}/{version_name}"
-
-        if path_exists(self.token, self.site_id, version_path):
-            target = get_drive_item_by_path(
+        v1_name = f"{project_id}_gantt_v1.0.xlsx"
+        v1_path = f"{version_folder}/{v1_name}"
+        working_content = self._download_drive_item(source)
+        baseline_content = None
+        if path_exists(self.token, self.site_id, v1_path):
+            baseline_item = get_drive_item_by_path(
                 self.token,
                 self.site_id,
-                version_path,
+                v1_path,
             )
-            created = False
-        else:
-            ensure_drive_folder(self.token, self.site_id, version_folder)
-            content = self._download_drive_item(source)
-            target = graph_put_bytes(
-                self.token,
-                (
-                    f"{GRAPH_BASE}/sites/{self.site_id}/drive/root:/"
-                    f"{encoded_drive_path(version_path)}:/content"
-                ),
-                content,
-            )
-            created = True
+            baseline_content = self._download_drive_item(baseline_item)
+
+        decision = decide_version(working_content, baseline_content)
+        version_name = f"{project_id}_gantt_{decision.version}.xlsx"
+        version_path = f"{version_folder}/{version_name}"
+        created = not path_exists(self.token, self.site_id, version_path)
+        ensure_drive_folder(self.token, self.site_id, version_folder)
+        target = graph_put_bytes(
+            self.token,
+            (
+                f"{GRAPH_BASE}/sites/{self.site_id}/drive/root:/"
+                f"{encoded_drive_path(version_path)}:/content"
+            ),
+            working_content,
+        )
         return VersionArtifact(
             identifier=str(target.get("id") or ""),
             web_url=str(target.get("webUrl") or ""),
             file_name=str(target.get("name") or version_name),
             created=created,
+            version=decision.version,
+            reasons=decision.reasons,
         )
 
     def _load_notification_keys(self) -> set[tuple[str, str]]:
@@ -1135,7 +1127,7 @@ def run_system2(
         if record.version_requested:
             updated = service.version(record)
             if (
-                normalized(updated.current_version) == "v1.0"
+                normalized(updated.current_version) in {"v1.0", "v2.0"}
                 and normalized(updated.state) == "aprobado / versionado"
             ):
                 versioned += 1

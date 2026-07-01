@@ -167,8 +167,9 @@ En una ejecución manual, `control_item_id` limita Sistema 2 a un único item de
 de modificación de Gantt. Activar además `skip_system1` evita consumir la cola
 de presupuestos durante las primeras pruebas controladas.
 
-El schedule activo es `17 * * * *` (una vez por hora, UTC). GitHub puede
-retrasar los schedules. El fallback diario documentado, no activado, es
+El cron interno de GitHub Actions está desactivado. El workflow conserva
+`workflow_dispatch` y puede ser llamado por el dispatcher externo de 15
+minutos cuando este sea activado. El fallback diario documentado, no activado, es
 `17 12 * * *`.
 
 ## Errores operativos
@@ -183,7 +184,8 @@ retrasar los schedules. El fallback diario documentado, no activado, es
 
 ## Pendiente para una fase posterior
 
-El MVP incorpora ahora la copia inicial `v1.0` después de una aprobación humana
-mediante `SolicitarVersionado`. Las revisiones `v1.1`, `v1.2`, `v2.0`, el
+El MVP usa `v1.0` para costos iguales o menores y `v2.0` para aumentos de costo
+o actividades posteriores a la fecha final contractual. Las revisiones `v1.1`,
+`v1.2`, `v2.1`, el
 historial formal y cualquier correo de aprobación permanecen fuera de Sistema
 2. Véase `docs/versioning_system.md`.

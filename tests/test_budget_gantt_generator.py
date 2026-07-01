@@ -531,6 +531,11 @@ class GanttWorkbookTests(unittest.TestCase):
                 self.assertIn("Gantt", wb.sheetnames)
                 self.assertIn("Datos", wb.sheetnames)
                 self.assertIn("Assessment", wb.sheetnames)
+                self.assertIn("AutosysVersionBaseline", wb.sheetnames)
+                self.assertEqual(
+                    "hidden",
+                    wb["AutosysVersionBaseline"].sheet_state,
+                )
                 self.assertEqual("00C00000", wb["Presupuesto"]["A1"].fill.fgColor.rgb)
                 self.assertEqual("=SUM(1,2)", wb["Presupuesto"]["L2"].value)
 
@@ -572,6 +577,24 @@ class GanttWorkbookTests(unittest.TestCase):
                 calendar_start = 10
                 self.assertEqual(date(2026, 7, 1), ws.cell(HEADER_ROW, calendar_start).value.date())
                 self.assertEqual(date(2026, 7, 12), ws.cell(HEADER_ROW, calendar_start + 11).value.date())
+                contractual_end_column = calendar_start + 11
+                extension_column = contractual_end_column + 1
+                self.assertEqual(
+                    "00D9EAF7",
+                    ws.cell(HEADER_ROW, contractual_end_column).fill.fgColor.rgb,
+                )
+                self.assertEqual(
+                    "00F4CCCC",
+                    ws.cell(HEADER_ROW, extension_column).fill.fgColor.rgb,
+                )
+                self.assertEqual(
+                    date(2027, 7, 12),
+                    ws.cell(HEADER_ROW, extension_column + 364).value.date(),
+                )
+                self.assertEqual(
+                    ws.cell(DATA_START_ROW + 1, 3).fill.fgColor.rgb,
+                    ws.cell(DATA_START_ROW + 1, 4).fill.fgColor.rgb,
+                )
             finally:
                 wb.close()
 
