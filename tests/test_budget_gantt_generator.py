@@ -27,6 +27,7 @@ from sistema1_gantt_builder import (  # noqa: E402
     build_gantt_workbook,
     derive_project_identity,
     read_project_window,
+    requires_general_budget_label,
     select_budget_sheet,
 )
 
@@ -447,6 +448,21 @@ class BudgetExtractionTests(unittest.TestCase):
 
 
 class GanttWorkbookTests(unittest.TestCase):
+    def test_flexio_sheet_does_not_require_literal_general_budget_label(self) -> None:
+        wb = Workbook()
+        wb.active.title = "Presupuesto FLEXIO"
+        self.assertFalse(
+            requires_general_budget_label(wb, "Presupuesto FLEXIO")
+        )
+
+    def test_split_budget_sheets_require_general_budget_label(self) -> None:
+        wb = Workbook()
+        wb.active.title = "Presupuesto Materiales"
+        wb.create_sheet("Presupuesto Mano de Obra")
+        self.assertTrue(
+            requires_general_budget_label(wb, "Presupuesto Materiales")
+        )
+
     def test_project_calendar_understands_duration_units_and_prioritizes_end(self) -> None:
         wb = Workbook()
         wb.remove(wb.active)
