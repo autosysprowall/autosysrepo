@@ -109,7 +109,7 @@ class AssignmentTests(unittest.TestCase):
         )
         self.assertIn("El departamento de comercial", notification.body)
         self.assertIn(record().gantt_link, notification.body)
-        self.assertIn("Guía PDF Ingenieros + Planta", notification.body)
+        self.assertNotIn("Guía PDF Ingenieros + Planta", notification.body)
         merged = {key: value for _, patch in backend.patches for key, value in patch.items()}
         self.assertEqual("Asignado", merged["EstadoGantt"])
         self.assertTrue(merged["PermisoGanttOtorgado"])

@@ -49,7 +49,8 @@ Nombre: `PA_S1_DevolverPresupuestoInvalido`.
 
 El flujo fue creado el 30 de junio de 2026 en el ambiente `Prowall (default)`,
 con ID `56a4ec6a-5fd0-4c74-b9cb-7c65b0375928`. Quedó apagado deliberadamente.
-Debe permanecer en modo `test` hasta validar el texto final y la guía PDF.
+Debe permanecer en modo `test` hasta validar el texto final. La guía PDF se
+omite mientras no exista.
 
 La conexión Outlook usada es `auto.sys@prowallpanama.com`; el remitente efectivo
 será esa cuenta mientras no se configure `From (Send as)`.

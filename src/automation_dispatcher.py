@@ -151,7 +151,7 @@ def engineer_guide_line() -> str:
     guide_url = os.getenv("ENGINEER_GUIDE_URL", "").strip()
     if guide_url:
         return f"Guía PDF Ingenieros + Planta:\n{guide_url}"
-    return "Guía PDF Ingenieros + Planta: pendiente de configurar."
+    return ""
 
 
 def parse_bool(value: Any) -> bool:
@@ -344,9 +344,11 @@ def assignment_notification(record: ControlRecord, assigned: datetime, deadline:
         f"Proyecto: {project}\n"
         f"Fecha de asignación: {assigned.date().isoformat()}\n"
         f"Fecha límite: {deadline.date().isoformat()}\n\n"
-        f"Link de acceso de editor al diagrama:\n{record.gantt_link}\n\n"
-        f"{engineer_guide_line()}"
+        f"Link de acceso de editor al diagrama:\n{record.gantt_link}"
     )
+    guide = engineer_guide_line()
+    if guide:
+        body += f"\n\n{guide}"
     return Notification(
         "AsignacionGantt",
         record.engineer_email,
@@ -370,9 +372,11 @@ def tracking_notification(record: ControlRecord, kind: str, days: int) -> Notifi
             f"Han pasado {days} días desde la asignación del cronograma del "
             f"proyecto {project}. Por favor agilizar el proceso para permitir "
             "la mejor planificación posible.\n\n"
-            f"Link de acceso de editor al diagrama:\n{record.gantt_link}\n\n"
-            f"{engineer_guide_line()}"
+            f"Link de acceso de editor al diagrama:\n{record.gantt_link}"
         )
+        guide = engineer_guide_line()
+        if guide:
+            body += f"\n\n{guide}"
         return Notification(kind, record.engineer_email, warning_cc, subject, body)
     if kind == "Advertencia2":
         subject = f"Advertencia Cronograma Proyecto {project}"
@@ -380,9 +384,11 @@ def tracking_notification(record: ControlRecord, kind: str, days: int) -> Notifi
             f"Han pasado {days} días desde la asignación del cronograma del "
             f"proyecto {project}. Por favor agilizar el proceso para permitir "
             "la mejor planificación posible.\n\n"
-            f"Link de acceso de editor al diagrama:\n{record.gantt_link}\n\n"
-            f"{engineer_guide_line()}"
+            f"Link de acceso de editor al diagrama:\n{record.gantt_link}"
         )
+        guide = engineer_guide_line()
+        if guide:
+            body += f"\n\n{guide}"
         return Notification(kind, record.engineer_email, warning_cc, subject, body)
     recipients = record.supervisors_email or record.engineer_email
     cc = record.engineer_email if record.supervisors_email else ""

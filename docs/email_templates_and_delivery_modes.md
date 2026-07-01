@@ -38,7 +38,7 @@ Cambiar el modo solo en la variable de repositorio
 - cuerpo: texto de asignación, fechas, `GanttWorkingLink` y guía de ingenieros.
 
 La guía se configura con la variable `ENGINEER_GUIDE_URL`. Mientras esté
-vacía, el correo indica que la guía está pendiente de configurar.
+vacía, se omite completamente del correo.
 
 ## Advertencia 1 y 2
 
@@ -61,16 +61,17 @@ Este correo lo envía `PA_S1_DevolverPresupuestoInvalido`:
 - asunto live: `Presupuesto No Válido Proyecto {NombreProyecto}`;
 - asunto test: `[PRUEBA] Presupuesto No Válido Proyecto {NombreProyecto}`;
 - adjunta el presupuesto original;
-- incluye `FileLink`, `UltimoError` y la guía de presupuesto.
+- incluye `FileLink` y `UltimoError`;
+- la guía de presupuesto se omite mientras no exista.
 
 En Power Automate deben existir dos variables:
 
 - `DeliveryMode`, con `test` o `live`;
 - `TestRecipient`, con `auto.sys@prowallpanama.com`.
 
-La URL de la guía puede guardarse en una variable de entorno de la solución
-llamada `BUDGET_GUIDE_URL`, o escribirse como vínculo administrado dentro del
-flujo.
+Cuando exista, la URL de la guía puede guardarse en una variable de entorno de
+la solución llamada `BUDGET_GUIDE_URL`. Mientras esté vacía, el flujo no debe
+mostrar texto de guía ni un vínculo de reemplazo.
 
 Expresión para **To**:
 
