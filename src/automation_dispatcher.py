@@ -20,9 +20,17 @@ import requests
 from openpyxl import load_workbook
 
 try:
-    from .gantt_versioning import decide_version, workbook_with_status
+    from .gantt_versioning import (
+        decide_version,
+        parse_version,
+        workbook_with_status,
+    )
 except ImportError:  # Direct execution: python src/automation_dispatcher.py
-    from gantt_versioning import decide_version, workbook_with_status
+    from gantt_versioning import (
+        decide_version,
+        parse_version,
+        workbook_with_status,
+    )
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1441,26 +1449,58 @@ class SharePointBackend:
             raise RuntimeError("ProyectoID vacío; no se puede nombrar la versión.")
         gantts_folder = working_folder.rsplit("/", 1)[0]
         version_folder = f"{gantts_folder}/versionados"
-        v1_name = f"{project_id}_gantt_v1.0.xlsx"
-        v1_path = f"{version_folder}/{v1_name}"
         working_content = self._download_drive_item(source)
-        baseline_content = None
-        if path_exists(self.token, self.site_id, v1_path):
-            baseline_item = get_drive_item_by_path(
+        version_items: list[tuple[tuple[int, int], dict[str, Any], bytes]] = []
+        if path_exists(self.token, self.site_id, version_folder):
+            children = graph_get(
                 self.token,
-                self.site_id,
-                v1_path,
-            )
-            baseline_content = self._download_drive_item(baseline_item)
-
-        decision = decide_version(working_content, baseline_content)
+                (
+                    f"{GRAPH_BASE}/sites/{self.site_id}/drive/root:/"
+                    f"{encoded_drive_path(version_folder)}:/children"
+                    "?$select=id,name,webUrl,file,eTag&$top=999"
+                ),
+            ).get("value") or []
+            prefix = f"{project_id}_gantt_".casefold()
+            for item in children:
+                name = str(item.get("name") or "")
+                lowered = name.casefold()
+                if (
+                    item.get("file") is None
+                    or not lowered.startswith(prefix)
+                    or not lowered.endswith(".xlsx")
+                ):
+                    continue
+                parsed = parse_version(name[len(prefix) : -5])
+                if parsed is None:
+                    continue
+                version_items.append(
+                    (parsed, item, self._download_drive_item(item))
+                )
+        version_items.sort(key=lambda entry: entry[0])
+        previous_content = version_items[-1][2] if version_items else None
+        current_version = (
+            f"v{version_items[-1][0][0]}.{version_items[-1][0][1]}"
+            if version_items
+            else ""
+        )
+        decision = decide_version(
+            working_content,
+            previous_content,
+            current_version=current_version,
+            prior_version_contents=tuple(
+                content for _, _, content in version_items
+            ),
+        )
         version_content = workbook_with_status(
             working_content,
             CURRENT_STATE,
         )
         version_name = f"{project_id}_gantt_{decision.version}.xlsx"
         version_path = f"{version_folder}/{version_name}"
-        created = not path_exists(self.token, self.site_id, version_path)
+        if path_exists(self.token, self.site_id, version_path):
+            raise RuntimeError(
+                f"La versión {decision.version} ya existe; no se sobrescribió."
+            )
         ensure_drive_folder(self.token, self.site_id, version_folder)
         target = graph_put_bytes(
             self.token,
@@ -1474,7 +1514,7 @@ class SharePointBackend:
             identifier=str(target.get("id") or ""),
             web_url=str(target.get("webUrl") or ""),
             file_name=str(target.get("name") or version_name),
-            created=created,
+            created=True,
             version=decision.version,
             reasons=decision.reasons,
             source_etag=str(source.get("eTag") or ""),
@@ -1765,7 +1805,7 @@ def run_system2(
                 candidate = replace(record, version_requested=True)
             updated = service.version(candidate)
             if (
-                normalized(updated.current_version) in {"v1.0", "v2.0"}
+                parse_version(updated.current_version) is not None
                 and normalized(updated.state) == normalized(CURRENT_STATE)
             ):
                 versioned += 1

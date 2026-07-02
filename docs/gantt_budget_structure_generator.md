@@ -222,8 +222,10 @@ Nunca se inventan fechas por actividad.
 El calendario visible se extiende 365 días después de la `Fecha Final`
 contractual. El período contractual se muestra en azul y la extensión en rojo.
 Las columnas `Fecha de Inicio` y `Fecha de Fin` de cada actividad usan el mismo
-sombreado azul. Una actividad que termina en el tramo rojo obliga a `v2.0`
-cuando se solicita el versionado.
+sombreado azul. En el primer ciclo, una actividad que termina después de la
+fecha contractual provoca un salto de versión mayor. En ciclos posteriores,
+solo vuelve a provocar otro salto mayor si supera la fecha más tardía ya
+aprobada.
 
 La hoja oculta `AutosysVersionBaseline` conserva los totales financieros
 originales necesarios para detectar aumentos antes de que exista `v1.0`.

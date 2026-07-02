@@ -20,32 +20,45 @@ pero el supervisor ya no tiene que editarlo.
 El cron interno de GitHub Actions está desactivado. El workflow se ejecuta
 manualmente o mediante el dispatcher externo cuando sea activado.
 
-## Decisión v1.0 o v2.0
+## Versiones acumulativas
 
-Python descarga el WORKING y, si existe, la versión `v1.0`:
+Python enumera todas las versiones existentes del proyecto y ordena
+numéricamente sus nombres. La primera decisión parte de la línea base del
+presupuesto; las siguientes parten de la última versión aprobada.
 
-- si los costos totales comparables se mantienen o disminuyen, queda en
-  `v1.0`;
-- si aumenta al menos una columna comparable de costo total o precio total,
-  queda en `v2.0`;
-- si la fecha final de alguna actividad supera la Fecha Final contractual,
-  queda en `v2.0`, aunque los costos no aumenten.
+- Sin salto mayor: conserva el entero e incrementa el decimal:
+  `v1.0 → v1.1 → v1.2` o `v2.0 → v2.1`.
+- Con salto mayor: incrementa el entero y reinicia el decimal:
+  `v1.2 → v2.0` o `v2.3 → v3.0`.
+- Una versión existente nunca se sobrescribe.
+
+El salto mayor usa una condición OR:
+
+1. el nuevo `Costo Total` supera el de la versión inmediatamente anterior; o
+2. la fecha final más tardía del WORKING supera la fecha más tardía ya
+   aprobada.
+
+Si cualquiera se cumple, avanza el entero. Si ninguna se cumple, avanza solo
+el decimal.
 
 Cada Gantt nuevo contiene la hoja oculta `AutosysVersionBaseline`, creada con
-los totales del presupuesto original. En el primer versionado se compara contra
-esa línea base; posteriormente se compara contra `v1.0`.
+el total del presupuesto original. En el primer versionado el costo se compara
+contra esa línea base; posteriormente se compara contra la versión
+inmediatamente anterior.
 
 La `Fecha Final contractual` también se conserva en esa hoja oculta y es la
-fuente prioritaria para detectar actividades dentro de la extensión roja. La
-hoja `Datos` se usa solamente como respaldo.
+fuente inicial de cronología. Para revisiones posteriores, el límite es el
+máximo entre esa fecha contractual y todas las fechas finales ya aprobadas.
+Por eso un atraso aceptado no genera otro salto mayor hasta que una nueva
+entrega supere esa fecha más atrasada.
 
-Un Gantt antiguo que no tenga esta hoja y tampoco tenga una `v1.0` previa se
+Un Gantt antiguo que no tenga esta hoja y tampoco tenga una versión previa se
 rechaza con una instrucción de regenerar el WORKING. No se asume una versión
 sin comparación financiera verificable.
 
-La comparación considera todas las columnas cuyo encabezado representa
-`Costo Total` o `Precio Total`. `Costo Unitario`, `Utilidad` y `Margen` no se
-suman como costo del proyecto.
+La comparación suma únicamente la columna canónica `Costo Total`.
+`Costo Unitario`, `Precio Total`, `Precio Unitario`, `Utilidad` y `Margen` no
+se suman como costo del proyecto.
 
 ## Archivos
 
@@ -53,14 +66,16 @@ El WORKING permanece en `Proyectos Activos/.../gantts/working/`. La versión se
 guarda en `Proyectos Activos/.../gantts/versionados/` como:
 
 - `{ProyectoID}_gantt_v1.0.xlsx`;
-- `{ProyectoID}_gantt_v2.0.xlsx`.
+- `{ProyectoID}_gantt_v1.1.xlsx`;
+- `{ProyectoID}_gantt_v2.0.xlsx`;
+- y así sucesivamente.
 
 El WORKING no se mueve ni se renombra. `Proyectos Terminados` está rechazado.
 
 ## Campos actualizados
 
 - `SolicitarVersionado = No` después del éxito;
-- `VersionActual = v1.0` o `v2.0`;
+- `VersionActual =` la versión acumulativa creada;
 - `GanttVersionLink`;
 - `GanttVersionIdentifier`;
 - `FechaUltimoVersionado`;
@@ -92,4 +107,5 @@ La lista de SharePoint es la fuente de verdad. Power Automate sincroniza
 `Gantt!B6` mediante el Office Script `SetGanttStatus`; un bloqueo temporal del
 Excel no invalida el versionado.
 
-No existe todavía historial con `v1.1`, `v1.2`, `v2.1` u otros niveles.
+Cada archivo dentro de `gantts/versionados` forma el historial inmutable del
+proyecto.

@@ -13,6 +13,7 @@ from openpyxl.worksheet.datavalidation import DataValidation
 
 HEADER_SCAN_LIMIT = 30
 COST_TOLERANCE = 0.01
+VERSION_PATTERN = re.compile(r"^v?(\d+)\.(\d+)$", re.IGNORECASE)
 PROJECT_STATUS_LABELS = {
     "estado general del gantt",
     "estado general gantt",
@@ -100,12 +101,21 @@ def _contractual_end(workbook) -> date | None:
 
 
 def _cost_columns(headers: dict[str, int]) -> dict[str, int]:
-    result: dict[str, int] = {}
-    for header, column in headers.items():
-        if any(term in header for term in ("costo total", "precio total")):
-            if not any(term in header for term in ("utilidad", "margen")):
-                result[header] = column
-    return result
+    exact = [
+        (header, column)
+        for header, column in headers.items()
+        if header == "costo total"
+    ]
+    candidates = exact or [
+        (header, column)
+        for header, column in headers.items()
+        if header.startswith("costo total")
+        and not any(term in header for term in ("utilidad", "margen"))
+    ]
+    if not candidates:
+        return {}
+    header, column = min(candidates, key=lambda item: item[1])
+    return {header: column}
 
 
 def _numeric(value: Any) -> float | None:
@@ -124,6 +134,16 @@ class GanttSnapshot:
     latest_activity_end: date | None
 
     @property
+    def total_cost(self) -> float:
+        return sum(self.costs.values())
+
+    @property
+    def baseline_total_cost(self) -> float | None:
+        if not self.baseline_costs:
+            return None
+        return sum(self.baseline_costs.values())
+
+    @property
     def schedule_overrun(self) -> bool:
         return bool(
             self.contractual_end
@@ -138,6 +158,30 @@ class VersionDecision:
     cost_increase: bool
     schedule_overrun: bool
     reasons: tuple[str, ...]
+    previous_total_cost: float
+    working_total_cost: float
+    chronology_limit: date | None
+
+
+def parse_version(value: str) -> tuple[int, int] | None:
+    match = VERSION_PATTERN.fullmatch(str(value or "").strip())
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(2))
+
+
+def format_version(value: tuple[int, int]) -> str:
+    return f"v{value[0]}.{value[1]}"
+
+
+def next_version(current_version: str, major_change: bool) -> str:
+    parsed = parse_version(current_version)
+    if parsed is None:
+        return "v2.0" if major_change else "v1.0"
+    major, minor = parsed
+    if major_change:
+        return f"v{major + 1}.0"
+    return f"v{major}.{minor + 1}"
 
 
 def snapshot_gantt(content: bytes) -> GanttSnapshot:
@@ -165,11 +209,25 @@ def snapshot_gantt(content: bytes) -> GanttSnapshot:
         baseline_costs: dict[str, float] = {}
         if "AutosysVersionBaseline" in workbook.sheetnames:
             baseline_ws = workbook["AutosysVersionBaseline"]
+            baseline_candidates: list[tuple[str, float]] = []
             for row_number in range(3, baseline_ws.max_row + 1):
                 header = _normalized(baseline_ws.cell(row_number, 1).value)
                 value = _numeric(baseline_ws.cell(row_number, 2).value)
-                if header and value is not None:
-                    baseline_costs[header] = value
+                if (
+                    header.startswith("costo total")
+                    and value is not None
+                    and not any(
+                        term in header for term in ("utilidad", "margen")
+                    )
+                ):
+                    baseline_candidates.append((header, value))
+            exact_baseline = [
+                candidate
+                for candidate in baseline_candidates
+                if candidate[0] == "costo total"
+            ]
+            selected_baseline = exact_baseline or baseline_candidates[:1]
+            baseline_costs.update(selected_baseline)
         return GanttSnapshot(
             costs=costs,
             baseline_costs=baseline_costs,
@@ -180,53 +238,85 @@ def snapshot_gantt(content: bytes) -> GanttSnapshot:
         workbook.close()
 
 
-def decide_version(working_content: bytes, baseline_v1_content: bytes | None) -> VersionDecision:
+def decide_version(
+    working_content: bytes,
+    previous_version_content: bytes | None,
+    *,
+    current_version: str = "",
+    prior_version_contents: tuple[bytes, ...] = (),
+) -> VersionDecision:
     working = snapshot_gantt(working_content)
-    cost_increase = False
     reasons: list[str] = []
 
-    baseline_costs: dict[str, float] = {}
-    if baseline_v1_content is not None:
-        baseline_costs = snapshot_gantt(baseline_v1_content).costs
-    elif working.baseline_costs:
-        baseline_costs = working.baseline_costs
+    previous_snapshot = (
+        snapshot_gantt(previous_version_content)
+        if previous_version_content is not None
+        else None
+    )
+    previous_total = (
+        previous_snapshot.total_cost
+        if previous_snapshot is not None
+        else working.baseline_total_cost
+    )
+    if previous_total is None:
+        raise ValueError(
+            "El Gantt no contiene AutosysVersionBaseline y tampoco existe una "
+            "versión anterior. Regenere el WORKING antes de versionar."
+        )
+    if not working.costs:
+        raise ValueError(
+            "No existe una columna canónica Costo Total en el Gantt WORKING."
+        )
 
-    if not baseline_costs:
-        raise ValueError(
-            "El Gantt no contiene AutosysVersionBaseline y tampoco existe v1.0. "
-            "Regénere el WORKING con el generador actual antes de versionar."
+    cost_increase = working.total_cost > previous_total + COST_TOLERANCE
+    if cost_increase:
+        reasons.append(
+            "Costo Total aumentó de "
+            f"{previous_total:.2f} a {working.total_cost:.2f}."
         )
-    comparable = sorted(set(working.costs) & set(baseline_costs))
-    if not comparable:
-        raise ValueError(
-            "No existen columnas de costo total comparables entre WORKING y su línea base."
+
+    history_contents = prior_version_contents
+    if not history_contents and previous_version_content is not None:
+        history_contents = (previous_version_content,)
+    chronology_candidates = [
+        value
+        for value in (
+            working.contractual_end,
+            *(
+                snapshot_gantt(content).latest_activity_end
+                for content in history_contents
+            ),
         )
-    increased = [
-        header
-        for header in comparable
-        if working.costs[header] > baseline_costs[header] + COST_TOLERANCE
+        if value is not None
     ]
-    cost_increase = bool(increased)
-    if increased:
+    chronology_limit = (
+        max(chronology_candidates) if chronology_candidates else None
+    )
+    schedule_overrun = bool(
+        chronology_limit
+        and working.latest_activity_end
+        and working.latest_activity_end > chronology_limit
+    )
+    if schedule_overrun:
         reasons.append(
-            "Aumento de costo detectado en: " + ", ".join(increased)
+            "La fecha más tardía aumentó de "
+            f"{chronology_limit.isoformat()} a "
+            f"{working.latest_activity_end.isoformat()}."
         )
 
-    if working.schedule_overrun:
-        reasons.append(
-            "Una actividad termina después de la Fecha Final contractual."
-        )
-
-    major_change = cost_increase or working.schedule_overrun
+    major_change = cost_increase or schedule_overrun
     if not reasons:
         reasons.append(
-            "Costos sin aumento y actividades dentro de la Fecha Final contractual."
+            "Costo Total sin aumento y fecha final dentro del máximo ya aprobado."
         )
     return VersionDecision(
-        version="v2.0" if major_change else "v1.0",
+        version=next_version(current_version, major_change),
         cost_increase=cost_increase,
-        schedule_overrun=working.schedule_overrun,
+        schedule_overrun=schedule_overrun,
         reasons=tuple(reasons),
+        previous_total_cost=previous_total,
+        working_total_cost=working.total_cost,
+        chronology_limit=chronology_limit,
     )
 
 

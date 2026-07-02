@@ -709,6 +709,27 @@ class VersioningTests(unittest.TestCase):
         self.assertEqual("v2.0", decision.version)
         self.assertTrue(decision.cost_increase)
 
+    def test_price_total_is_not_counted_as_project_cost(self) -> None:
+        content = self.gantt_bytes(1000, baseline_cost=1000)
+        workbook = load_workbook(io.BytesIO(content))
+        gantt = workbook["Gantt"]
+        header_row = next(
+            row
+            for row in range(1, gantt.max_row + 1)
+            if gantt.cell(row, 1).value == "Actividad"
+        )
+        gantt.cell(header_row, 5, "Precio Total")
+        gantt.cell(header_row + 1, 5, 5000)
+        baseline = workbook["AutosysVersionBaseline"]
+        baseline.append(["Precio Total", 5000])
+        stream = io.BytesIO()
+        workbook.save(stream)
+        workbook.close()
+
+        snapshot = snapshot_gantt(stream.getvalue())
+        self.assertEqual(1000, snapshot.total_cost)
+        self.assertEqual(1000, snapshot.baseline_total_cost)
+
     def test_first_approval_uses_embedded_budget_baseline(self) -> None:
         decision = decide_version(
             self.gantt_bytes(1200, baseline_cost=1000),
@@ -718,7 +739,7 @@ class VersioningTests(unittest.TestCase):
         self.assertTrue(decision.cost_increase)
 
     def test_legacy_gantt_without_baseline_is_rejected(self) -> None:
-        with self.assertRaisesRegex(ValueError, "Regénere el WORKING"):
+        with self.assertRaisesRegex(ValueError, "Regenere el WORKING"):
             decide_version(self.gantt_bytes(1000), None)
 
     def test_cost_reduction_stays_v1(self) -> None:
@@ -736,6 +757,58 @@ class VersioningTests(unittest.TestCase):
         )
         self.assertEqual("v2.0", decision.version)
         self.assertTrue(decision.schedule_overrun)
+
+    def test_minor_versions_accumulate_without_major_change(self) -> None:
+        decision = decide_version(
+            self.gantt_bytes(900, datetime(2026, 12, 20)),
+            self.gantt_bytes(1000, datetime(2026, 12, 15)),
+            current_version="v2.2",
+            prior_version_contents=(
+                self.gantt_bytes(1000, datetime(2027, 1, 15)),
+                self.gantt_bytes(1000, datetime(2026, 12, 15)),
+            ),
+        )
+        self.assertEqual("v2.3", decision.version)
+        self.assertFalse(decision.cost_increase)
+        self.assertFalse(decision.schedule_overrun)
+
+    def test_cost_increase_advances_major_and_resets_minor(self) -> None:
+        decision = decide_version(
+            self.gantt_bytes(1001, datetime(2026, 12, 20)),
+            self.gantt_bytes(1000, datetime(2026, 12, 20)),
+            current_version="v2.3",
+        )
+        self.assertEqual("v3.0", decision.version)
+        self.assertTrue(decision.cost_increase)
+
+    def test_new_latest_date_advances_major_again(self) -> None:
+        latest_approved = datetime(2027, 2, 1)
+        decision = decide_version(
+            self.gantt_bytes(900, datetime(2027, 2, 2)),
+            self.gantt_bytes(1000, datetime(2027, 1, 15)),
+            current_version="v2.3",
+            prior_version_contents=(
+                self.gantt_bytes(1100, latest_approved),
+                self.gantt_bytes(1000, datetime(2027, 1, 15)),
+            ),
+        )
+        self.assertEqual("v3.0", decision.version)
+        self.assertFalse(decision.cost_increase)
+        self.assertTrue(decision.schedule_overrun)
+
+    def test_major_change_uses_or_between_cost_and_schedule(self) -> None:
+        cost_only = decide_version(
+            self.gantt_bytes(1200, datetime(2026, 12, 20)),
+            self.gantt_bytes(1000, datetime(2026, 12, 20)),
+            current_version="v1.4",
+        )
+        date_only = decide_version(
+            self.gantt_bytes(900, datetime(2027, 1, 2)),
+            self.gantt_bytes(1000, datetime(2026, 12, 20)),
+            current_version="v1.4",
+        )
+        self.assertEqual("v2.0", cost_only.version)
+        self.assertEqual("v2.0", date_only.version)
 
     def test_contractual_end_prefers_embedded_generation_baseline(self) -> None:
         content = self.gantt_bytes(
@@ -848,7 +921,7 @@ class VersioningTests(unittest.TestCase):
             put_bytes.call_args.args[1],
         )
 
-    def test_sharepoint_backend_replaces_existing_target_after_reassessment(self) -> None:
+    def test_sharepoint_backend_never_replaces_existing_version(self) -> None:
         backend = SharePointBackend.__new__(SharePointBackend)
         backend.token = "token"
         backend.site_id = "site-id"
@@ -872,6 +945,10 @@ class VersioningTests(unittest.TestCase):
         with (
             patch("src.automation_dispatcher.path_exists", return_value=True),
             patch(
+                "src.automation_dispatcher.graph_get",
+                return_value={"value": [{**existing, "file": {}}]},
+            ),
+            patch(
                 "src.automation_dispatcher.decide_version",
                 return_value=type(
                     "Decision",
@@ -886,17 +963,13 @@ class VersioningTests(unittest.TestCase):
                 "src.automation_dispatcher.workbook_with_status",
                 return_value=b"version-content",
             ),
-            patch(
-                "src.automation_dispatcher.get_drive_item_by_path",
-                return_value=existing,
-            ),
             patch("src.automation_dispatcher.ensure_drive_folder"),
             patch("src.automation_dispatcher.graph_put_bytes") as put_bytes,
         ):
-            artifact = backend.create_initial_version(record())
+            with self.assertRaisesRegex(RuntimeError, "ya existe"):
+                backend.create_initial_version(record())
 
-        self.assertFalse(artifact.created)
-        put_bytes.assert_called_once()
+        put_bytes.assert_not_called()
 
 
 class DispatcherTests(unittest.TestCase):

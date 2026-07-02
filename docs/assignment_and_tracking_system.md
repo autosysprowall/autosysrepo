@@ -202,10 +202,10 @@ minutos cuando este sea activado. El fallback diario documentado, no activado, e
 - Envío Outlook fallido: Power Automate deja la notificación en `Error`; no
   marca el flag de enviado.
 
-## Pendiente para una fase posterior
+## Versionado acumulativo
 
-El MVP usa `v1.0` para costos iguales o menores y `v2.0` para aumentos de costo
-o actividades posteriores a la fecha final contractual. Las revisiones `v1.1`,
-`v1.2`, `v2.1`, el
-historial formal y cualquier correo de aprobación permanecen fuera de Sistema
-2. Véase `docs/versioning_system.md`.
+El dispatcher conserva un historial inmutable `v1.0`, `v1.1`, `v1.2`,
+`v2.0`, etc. El decimal avanza cuando costo y fecha permanecen dentro de los
+límites aprobados. El entero avanza si aumenta el `Costo Total` frente a la
+versión anterior o si se supera la fecha más tardía aprobada. Véase
+`docs/versioning_system.md`.
