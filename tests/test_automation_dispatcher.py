@@ -132,14 +132,17 @@ def record(**changes) -> ControlRecord:
 
 
 class AssignmentTests(unittest.TestCase):
-    def test_valid_assignment_grants_permission_and_queues_one_email(self) -> None:
+    def test_valid_assignment_grants_autosys_permission_and_queues_engineer_email(self) -> None:
         backend = FakeBackend()
         result = AutomationService(backend, NOW).assign(record())
 
         self.assertTrue(result.permission_granted)
         self.assertEqual("En Progreso", result.state)
         self.assertEqual(NOW + timedelta(days=9), result.deadline)
-        self.assertEqual([("10", "ingeniero@example.com")], backend.grants)
+        self.assertEqual(
+            [("10", "auto.sys@prowallpanama.com")],
+            backend.grants,
+        )
         self.assertEqual(["AsignacionGantt"], [item.kind for _, item in backend.notifications])
         notification = backend.notifications[0][1]
         self.assertEqual("ingeniero@example.com", notification.to)
@@ -154,7 +157,8 @@ class AssignmentTests(unittest.TestCase):
             f'<a href="{record().gantt_link}">',
             notification.body,
         )
-        self.assertIn("Abrir Gantt con permiso de edición</a>", notification.body)
+        self.assertIn("Abrir Gantt</a>", notification.body)
+        self.assertNotIn("permiso de edición", notification.body)
         self.assertNotIn("Guía PDF Ingenieros + Planta", notification.body)
         merged = {key: value for _, patch in backend.patches for key, value in patch.items()}
         self.assertEqual("En Progreso", merged["EstadoGantt"])
@@ -261,7 +265,10 @@ class AssignmentTests(unittest.TestCase):
         backend.metadata_error = RuntimeError("Datos unreadable")
         result = AutomationService(backend, NOW).assign(record(supervisors_email=""))
         self.assertEqual("En Progreso", result.state)
-        self.assertEqual([("10", "ingeniero@example.com")], backend.grants)
+        self.assertEqual(
+            [("10", "auto.sys@prowallpanama.com")],
+            backend.grants,
+        )
 
     def test_supervisors_are_enriched_when_engineer_already_exists(self) -> None:
         backend = FakeBackend(WorkbookMetadata(supervisors_email="jefe@example.com"))

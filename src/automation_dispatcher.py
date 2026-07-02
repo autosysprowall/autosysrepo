@@ -70,6 +70,7 @@ CLOSED_STATES = {"actual", "aprobado / versionado", "vencido"}
 CURRENT_STATE = "Actual"
 IN_PROGRESS_STATE = "En Progreso"
 DELIVER_STATE = "Entregar"
+GANTT_WORKING_EDITOR_EMAIL = "auto.sys@prowallpanama.com"
 PENDING_AUTOMATION_ETAG = "__POWER_AUTOMATE_PENDING_ETAG__"
 LEGACY_REVIEW_STATE = "En revisión inicial"
 REVIEW_STATE = DELIVER_STATE
@@ -432,7 +433,7 @@ def assignment_notification(record: ControlRecord, assigned: datetime, deadline:
         "plantilla adjunta.</p>"
         f"<p><strong>Proyecto:</strong> {escape(project)}</p>"
         f"<p><a href=\"{escape(record.gantt_link, quote=True)}\">"
-        "Abrir Gantt con permiso de edición</a></p>"
+        "Abrir Gantt</a></p>"
         "<p>Cuando termine, seleccione <strong>Entregar</strong> en "
         "<strong>Estado general del Gantt</strong>. No cambie el nombre ni "
         "mueva el archivo.</p>"
@@ -464,7 +465,7 @@ def tracking_notification(record: ControlRecord, kind: str, days: int) -> Notifi
             f"proyecto {escape(project)}. Por favor agilizar el proceso para "
             "permitir la mejor planificación posible.</p>"
             f"<p><a href=\"{escape(record.gantt_link, quote=True)}\">"
-            "Abrir Gantt con permiso de edición</a></p>"
+            "Abrir Gantt</a></p>"
         )
         guide = engineer_guide_line()
         if guide:
@@ -477,7 +478,7 @@ def tracking_notification(record: ControlRecord, kind: str, days: int) -> Notifi
             f"proyecto {escape(project)}. Por favor agilizar el proceso para "
             "permitir la mejor planificación posible.</p>"
             f"<p><a href=\"{escape(record.gantt_link, quote=True)}\">"
-            "Abrir Gantt con permiso de edición</a></p>"
+            "Abrir Gantt</a></p>"
         )
         guide = engineer_guide_line()
         if guide:
@@ -490,7 +491,7 @@ def tracking_notification(record: ControlRecord, kind: str, days: int) -> Notifi
         f"<p>El Gantt de {escape(base)} llegó al día {days} sin pasar a "
         "revisión inicial.</p>"
         f"<p><a href=\"{escape(record.gantt_link, quote=True)}\">"
-        "Abrir Gantt con permiso de edición</a></p>"
+        "Abrir Gantt</a></p>"
         "<p>El registro fue marcado como Vencido.</p>"
     )
     return Notification("Vencimiento", recipients, cc, subject, body)
@@ -933,7 +934,7 @@ class AutomationService:
                 {
                     "EstadoGantt": "Pendiente de asignación",
                     "UltimoErrorTracking": (
-                        "IngenieroEmail vacío o inválido; no se otorgó permiso."
+                        "IngenieroEmail vacío o inválido; no se completó la asignación."
                         + (
                             " Se encoló una vista previa exclusivamente para autosys."
                             if preview_queued
@@ -967,13 +968,19 @@ class AutomationService:
 
         if not record.permission_granted:
             try:
-                self.backend.grant_edit_access(record, engineer)
+                self.backend.grant_edit_access(
+                    record,
+                    GANTT_WORKING_EDITOR_EMAIL,
+                )
             except Exception as exc:
                 error = sanitize_error(exc)
                 self.backend.patch_control(
                     record.item_id,
                     {
-                        "UltimoErrorTracking": f"No se pudo compartir el Gantt: {error}",
+                        "UltimoErrorTracking": (
+                            "No se pudo conceder edición operativa exclusiva "
+                            f"a {GANTT_WORKING_EDITOR_EMAIL}: {error}"
+                        ),
                         "TrackingIntentos": record.tracking_attempts + 1,
                         "UltimoTrackingRun": iso_utc(self.now),
                     },

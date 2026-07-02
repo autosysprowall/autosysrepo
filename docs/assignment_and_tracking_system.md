@@ -2,8 +2,8 @@
 
 ## Alcance
 
-Sistema 2 comienza después de que Sistema 1 genera el Gantt WORKING. Comparte
-solamente ese archivo con el ingeniero, encola el correo de asignación, controla
+Sistema 2 comienza después de que Sistema 1 genera el Gantt WORKING. Mantiene
+la edición del archivo bajo autosys, encola el correo de asignación, controla
 los días 3, 6 y 9, sincroniza el estado `Entregar` y crea
 automáticamente la versión correspondiente.
 
@@ -18,7 +18,7 @@ Sistema 1 genera Gantt WORKING y actualiza Control_Gantt_Asignaciones
                               v
 GitHub Actions -> src/automation_dispatcher.py
   |-- completa correos desde la hoja Datos
-  |-- concede permiso de edición al archivo
+  |-- concede edición del WORKING solamente a autosys
   |-- calcula asignación y fecha límite
   |-- crea notificaciones idempotentes
   `-- procesa eventos gantt_working_modificado
@@ -84,7 +84,14 @@ queda `Pendiente de asignación` con un error accionable.
 
 Microsoft Graph resuelve el Gantt por `GanttWorkingIdentifier` o por
 `GanttWorkingLink` y concede permiso `write` solamente al archivo mediante
-`invite`. No comparte la carpeta.
+`invite`. El único destinatario de ese permiso concedido por la automatización
+es `auto.sys@prowallpanama.com`; el correo del ingeniero se utiliza para las
+notificaciones, no para compartir el WORKING. No comparte la carpeta.
+
+Este control evita crear nuevos permisos de edición para ingenieros. Los
+permisos heredados de la biblioteca o permisos explícitos concedidos antes de
+esta política deben retirarse una sola vez en SharePoint, porque `invite` no
+convierte automáticamente un archivo con herencia existente en uno privado.
 
 Después del permiso:
 

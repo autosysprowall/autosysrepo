@@ -46,6 +46,10 @@ Cambiar el modo solo en la variable de repositorio
   `GanttWorkingLink`;
 - adjunto: `Guia_AutoSys_Ingenieros_Residentes_Planta.pdf`.
 
+El enlace se envía como referencia al archivo, pero la automatización no
+concede edición al ingeniero. El permiso `write` del WORKING se concede
+únicamente a `auto.sys@prowallpanama.com`.
+
 La guía está incorporada como adjunto en `PA_S2_EnviarNotificacionesGantt`.
 `ENGINEER_GUIDE_URL` puede conservar un enlace adicional, pero no sustituye el
 PDF adjunto.
