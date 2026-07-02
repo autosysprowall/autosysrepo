@@ -3,6 +3,15 @@
 Este flujo sincroniza exclusivamente `Gantt!B6`. La lista
 `Control_Gantt_Asignaciones` es la fuente de verdad.
 
+## Despliegue
+
+- Environment:
+  `Default-ed7d4cfd-f42f-48ee-85ae-2e2be3539cd4`
+- Flow ID: `f340a819-d200-4ecd-995b-57bc86467730`
+- Estado: activo.
+- Script de despliegue:
+  `power_automate/scripts/deploy_status_sync_flow.py`
+
 ## Requisitos
 
 - Conector estándar SharePoint.

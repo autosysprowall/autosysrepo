@@ -1,0 +1,221 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "$connections": {
+      "defaultValue": {},
+      "type": "Object"
+    },
+    "$authentication": {
+      "defaultValue": {},
+      "type": "SecureObject"
+    }
+  },
+  "triggers": {
+    "When_an_item_is_created_or_modified": {
+      "recurrence": {
+        "frequency": "Minute",
+        "interval": 1
+      },
+      "evaluatedRecurrence": {
+        "frequency": "Minute",
+        "interval": 1
+      },
+      "splitOn": "@triggerOutputs()?['body/value']",
+      "type": "OpenApiConnection",
+      "inputs": {
+        "parameters": {
+          "dataset": "https://sciprowall.sharepoint.com/sites/PROYECTOSPROWALL",
+          "table": "afe5544b-3f60-40e4-81a0-01e86920f5f2"
+        },
+        "host": {
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+          "connectionName": "shared_sharepointonline",
+          "operationId": "GetOnUpdatedItems"
+        },
+        "authentication": "@parameters('$authentication')"
+      },
+      "conditions": [
+        {
+          "expression": "@and(equals(triggerBody()?['EstadoSyncExcel'],'Pendiente'),not(empty(triggerBody()?['GanttWorkingIdentifier'])),or(equals(triggerBody()?['StatusExcelDeseado'],'Actual'),equals(triggerBody()?['StatusExcelDeseado'],'En Progreso')))"
+        }
+      ],
+      "runtimeConfiguration": {
+        "concurrency": {
+          "runs": 1
+        }
+      }
+    }
+  },
+  "actions": {
+    "Mark_sync_processing": {
+      "runAfter": {},
+      "type": "OpenApiConnection",
+      "inputs": {
+        "parameters": {
+          "dataset": "https://sciprowall.sharepoint.com/sites/PROYECTOSPROWALL",
+          "table": "afe5544b-3f60-40e4-81a0-01e86920f5f2",
+          "id": "@triggerBody()?['ID']",
+          "item/Title": "@triggerBody()?['Title']",
+          "item/EstadoSyncExcel": "Procesando"
+        },
+        "host": {
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+          "connectionName": "shared_sharepointonline",
+          "operationId": "PatchItem"
+        },
+        "authentication": "@parameters('$authentication')"
+      }
+    },
+    "Run_script": {
+      "runAfter": {
+        "Mark_sync_processing": [
+          "Succeeded"
+        ]
+      },
+      "type": "OpenApiConnection",
+      "inputs": {
+        "parameters": {
+          "source": "https://sciprowall.sharepoint.com/sites/PROYECTOSPROWALL",
+          "drive": "b!gT--atFwrEiNN1Dm9ygu7gAK2MbJi0RKuVaPM52nyYJBRIiNpNq1Rb608Jq90UM6",
+          "file": "@triggerBody()?['GanttWorkingIdentifier']",
+          "scriptId": "ms-officescript%3A%2F%2Fonedrive_business_itemlink%2F01DOEBQSOGBUUS4J3DDNEZEYWXPWEC4VXH",
+          "ScriptParameters/desiredStatus": "@triggerBody()?['StatusExcelDeseado']",
+          "ScriptParameters/expectedCurrentStatus": "@triggerBody()?['StatusExcel']",
+          "ScriptParameters/allowReplaceEntregar": "@and(equals(triggerBody()?['StatusExcelDeseado'],'Actual'),equals(triggerBody()?['EstadoGantt'],'Actual'),not(empty(triggerBody()?['VersionActual'])))"
+        },
+        "host": {
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_excelonlinebusiness",
+          "connectionName": "shared_excelonlinebusiness",
+          "operationId": "RunScriptProd"
+        },
+        "authentication": "@parameters('$authentication')"
+      }
+    },
+    "Handle_script_result": {
+      "runAfter": {
+        "Run_script": [
+          "Succeeded"
+        ]
+      },
+      "type": "If",
+      "expression": "@or(equals(outputs('Run_script')?['body/result/code'],'ACTUALIZADO'),equals(outputs('Run_script')?['body/result/code'],'YA_SINCRONIZADO'))",
+      "actions": {
+        "Wait_for_SharePoint_metadata": {
+          "runAfter": {},
+          "type": "Wait",
+          "inputs": {
+            "interval": {
+              "count": 30,
+              "unit": "Second"
+            }
+          }
+        },
+        "Get_file_metadata": {
+          "runAfter": {
+            "Wait_for_SharePoint_metadata": [
+              "Succeeded"
+            ]
+          },
+          "type": "OpenApiConnection",
+          "inputs": {
+            "parameters": {
+              "dataset": "https://sciprowall.sharepoint.com/sites/PROYECTOSPROWALL",
+              "id": "@triggerBody()?['GanttWorkingIdentifier']"
+            },
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+              "connectionName": "shared_sharepointonline",
+              "operationId": "GetFileMetadata"
+            },
+            "authentication": "@parameters('$authentication')"
+          }
+        },
+        "Mark_sync_success": {
+          "runAfter": {
+            "Get_file_metadata": [
+              "Succeeded"
+            ]
+          },
+          "type": "OpenApiConnection",
+          "inputs": {
+            "parameters": {
+              "dataset": "https://sciprowall.sharepoint.com/sites/PROYECTOSPROWALL",
+              "table": "afe5544b-3f60-40e4-81a0-01e86920f5f2",
+              "id": "@triggerBody()?['ID']",
+              "item/Title": "@triggerBody()?['Title']",
+              "item/StatusExcel": "@outputs('Run_script')?['body/result/finalStatus']",
+              "item/EstadoSyncExcel": "Sincronizado",
+              "item/FechaUltimoSyncExcel": "@utcNow()",
+              "item/UltimoETagAutomatizacion": "@body('Get_file_metadata')?['ETag']",
+              "item/GanttWorkingETag": "@body('Get_file_metadata')?['ETag']",
+              "item/FechaUltimaModificacionGantt": "@body('Get_file_metadata')?['Modified']",
+              "item/UltimoErrorSyncExcel": "",
+              "item/ProximoIntentoSyncExcel": null
+            },
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+              "connectionName": "shared_sharepointonline",
+              "operationId": "PatchItem"
+            },
+            "authentication": "@parameters('$authentication')"
+          }
+        }
+      },
+      "else": {
+        "actions": {
+          "Mark_sync_omitted": {
+            "runAfter": {},
+            "type": "OpenApiConnection",
+            "inputs": {
+              "parameters": {
+                "dataset": "https://sciprowall.sharepoint.com/sites/PROYECTOSPROWALL",
+                "table": "afe5544b-3f60-40e4-81a0-01e86920f5f2",
+                "id": "@triggerBody()?['ID']",
+                "item/Title": "@triggerBody()?['Title']",
+                "item/StatusExcel": "@outputs('Run_script')?['body/result/finalStatus']",
+                "item/EstadoSyncExcel": "Omitido",
+                "item/FechaUltimoSyncExcel": "@utcNow()",
+                "item/UltimoErrorSyncExcel": "@outputs('Run_script')?['body/result/code']"
+              },
+              "host": {
+                "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                "connectionName": "shared_sharepointonline",
+                "operationId": "PatchItem"
+              },
+              "authentication": "@parameters('$authentication')"
+            }
+          }
+        }
+      }
+    },
+    "Mark_sync_error": {
+      "runAfter": {
+        "Run_script": [
+          "Failed",
+          "TimedOut"
+        ]
+      },
+      "type": "OpenApiConnection",
+      "inputs": {
+        "parameters": {
+          "dataset": "https://sciprowall.sharepoint.com/sites/PROYECTOSPROWALL",
+          "table": "afe5544b-3f60-40e4-81a0-01e86920f5f2",
+          "id": "@triggerBody()?['ID']",
+          "item/Title": "@triggerBody()?['Title']",
+          "item/EstadoSyncExcel": "Error",
+          "item/IntentosSyncExcel": "@add(coalesce(triggerBody()?['IntentosSyncExcel'],0),1)",
+          "item/UltimoErrorSyncExcel": "@string(outputs('Run_script'))",
+          "item/ProximoIntentoSyncExcel": "@addMinutes(utcNow(),15)"
+        },
+        "host": {
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+          "connectionName": "shared_sharepointonline",
+          "operationId": "PatchItem"
+        },
+        "authentication": "@parameters('$authentication')"
+      }
+    }
+  },
+  "outputs": {}
+}
