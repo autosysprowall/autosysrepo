@@ -66,19 +66,29 @@ jobs:
                   f"name={drive.get('name')} id={drive.get('id')}"
               )
 
-          scripts = requests.get(
-              "https://graph.microsoft.com/v1.0/users/"
-              "auto.sys@prowallpanama.com/drive/root/search(q='SetGanttStatus')"
-              "?$select=id,name,parentReference,webUrl",
-              headers=headers,
-              timeout=60,
-          )
-          scripts.raise_for_status()
-          matches = [
-              item
-              for item in scripts.json().get("value", [])
-              if item.get("name", "").casefold().startswith("setganttstatus")
-          ]
+          matches = []
+          for relative_path in (
+              "Documents/Office Scripts",
+              "Documentos/Office Scripts",
+          ):
+              scripts = requests.get(
+                  "https://graph.microsoft.com/v1.0/users/"
+                  "auto.sys@prowallpanama.com/drive/root:/"
+                  f"{relative_path}:/children"
+                  "?$select=id,name,parentReference,webUrl",
+                  headers=headers,
+                  timeout=60,
+              )
+              if scripts.status_code == 404:
+                  continue
+              scripts.raise_for_status()
+              matches.extend(
+                  item
+                  for item in scripts.json().get("value", [])
+                  if item.get("name", "").casefold().startswith(
+                      "setganttstatus"
+                  )
+              )
           if not matches:
               raise RuntimeError("No se encontró el Office Script SetGanttStatus.")
           for item in matches:
