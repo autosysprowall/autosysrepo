@@ -62,6 +62,7 @@ CLOSED_STATES = {"actual", "aprobado / versionado", "vencido"}
 CURRENT_STATE = "Actual"
 IN_PROGRESS_STATE = "En Progreso"
 DELIVER_STATE = "Entregar"
+PENDING_AUTOMATION_ETAG = "__POWER_AUTOMATE_PENDING_ETAG__"
 LEGACY_REVIEW_STATE = "En revisión inicial"
 REVIEW_STATE = DELIVER_STATE
 EMAIL_RE = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
@@ -365,6 +366,7 @@ class ControlRecord:
     excel_sync_state: str = ""
     excel_sync_attempts: int = 0
     next_excel_sync_at: datetime | None = None
+    last_excel_sync_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -669,6 +671,38 @@ class AutomationService:
             and record.automation_etag
             and file_state.etag == record.automation_etag
         )
+        pending_automation_change = bool(
+            file_state.etag
+            and normalized(metadata.status) == normalized(CURRENT_STATE)
+            and normalized(record.desired_excel_status)
+            == normalized(CURRENT_STATE)
+            and (
+                record.automation_etag == PENDING_AUTOMATION_ETAG
+                and record.last_excel_sync_at is not None
+                and (
+                    file_state.modified_at is None
+                    or file_state.modified_at
+                    <= record.last_excel_sync_at + timedelta(minutes=2)
+                )
+            )
+        )
+        interrupted_sync_recovery = bool(
+            file_state.etag
+            and normalized(metadata.status) == normalized(CURRENT_STATE)
+            and normalized(record.desired_excel_status)
+            == normalized(CURRENT_STATE)
+            and normalized(record.excel_sync_state) == "procesando"
+        )
+        if pending_automation_change or interrupted_sync_recovery:
+            automation_change = True
+            updates.update(
+                {
+                    "UltimoETagAutomatizacion": file_state.etag,
+                    "EstadoSyncExcel": "Sincronizado",
+                    "FechaUltimoSyncExcel": iso_utc(self.now),
+                    "UltimoErrorSyncExcel": "",
+                }
+            )
         current_or_legacy_closed = normalized(record.state) in {
             normalized(CURRENT_STATE),
             "aprobado / versionado",
@@ -1241,6 +1275,9 @@ class SharePointBackend:
                     excel_sync_attempts=parse_int(get("IntentosSyncExcel")),
                     next_excel_sync_at=parse_datetime(
                         get("ProximoIntentoSyncExcel")
+                    ),
+                    last_excel_sync_at=parse_datetime(
+                        get("FechaUltimoSyncExcel")
                     ),
                 )
             )

@@ -468,6 +468,59 @@ class StatusAndMetadataTests(unittest.TestCase):
         )
         self.assertEqual("Actual", result.state)
 
+    def test_pending_power_automate_etag_is_confirmed_without_reopening(self) -> None:
+        backend = FakeBackend()
+        current = record(
+            state="Actual",
+            current_version="v1.0",
+            gantt_etag='"etag-old"',
+            automation_etag="__POWER_AUTOMATE_PENDING_ETAG__",
+            desired_excel_status="Actual",
+            excel_sync_state="Sincronizado",
+            last_excel_sync_at=NOW,
+        )
+        result = AutomationService(backend, NOW).observe_gantt_file(
+            current,
+            GanttFileState(
+                metadata=WorkbookMetadata(status="Actual"),
+                etag='"etag-new"',
+                modified_at=NOW - timedelta(seconds=10),
+            ),
+        )
+        self.assertEqual("Actual", result.state)
+        merged = {
+            key: value
+            for _, patch_fields in backend.patches
+            for key, value in patch_fields.items()
+        }
+        self.assertEqual('"etag-new"', merged["UltimoETagAutomatizacion"])
+        self.assertEqual("Sincronizado", merged["EstadoSyncExcel"])
+
+    def test_interrupted_sync_is_recovered_after_script_changed_actual(self) -> None:
+        backend = FakeBackend()
+        current = record(
+            state="Actual",
+            current_version="v1.0",
+            gantt_etag='"etag-old"',
+            desired_excel_status="Actual",
+            excel_sync_state="Procesando",
+        )
+        result = AutomationService(backend, NOW).observe_gantt_file(
+            current,
+            GanttFileState(
+                metadata=WorkbookMetadata(status="Actual"),
+                etag='"etag-new"',
+                modified_at=NOW,
+            ),
+        )
+        self.assertEqual("Actual", result.state)
+        merged = {
+            key: value
+            for _, patch_fields in backend.patches
+            for key, value in patch_fields.items()
+        }
+        self.assertEqual('"etag-new"', merged["UltimoETagAutomatizacion"])
+
     def test_stale_actual_label_does_not_close_active_progress(self) -> None:
         backend = FakeBackend()
         current = record(

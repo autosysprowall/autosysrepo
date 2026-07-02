@@ -101,42 +101,8 @@
       "type": "If",
       "expression": "@or(equals(outputs('Run_script')?['body/result/code'],'ACTUALIZADO'),equals(outputs('Run_script')?['body/result/code'],'YA_SINCRONIZADO'))",
       "actions": {
-        "Wait_for_SharePoint_metadata": {
-          "runAfter": {},
-          "type": "Wait",
-          "inputs": {
-            "interval": {
-              "count": 30,
-              "unit": "Second"
-            }
-          }
-        },
-        "Get_file_metadata": {
-          "runAfter": {
-            "Wait_for_SharePoint_metadata": [
-              "Succeeded"
-            ]
-          },
-          "type": "OpenApiConnection",
-          "inputs": {
-            "parameters": {
-              "dataset": "https://sciprowall.sharepoint.com/sites/PROYECTOSPROWALL",
-              "id": "@triggerBody()?['GanttWorkingIdentifier']"
-            },
-            "host": {
-              "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
-              "connectionName": "shared_sharepointonline",
-              "operationId": "GetFileMetadata"
-            },
-            "authentication": "@parameters('$authentication')"
-          }
-        },
         "Mark_sync_success": {
-          "runAfter": {
-            "Get_file_metadata": [
-              "Succeeded"
-            ]
-          },
+          "runAfter": {},
           "type": "OpenApiConnection",
           "inputs": {
             "parameters": {
@@ -147,9 +113,7 @@
               "item/StatusExcel": "@outputs('Run_script')?['body/result/finalStatus']",
               "item/EstadoSyncExcel": "Sincronizado",
               "item/FechaUltimoSyncExcel": "@utcNow()",
-              "item/UltimoETagAutomatizacion": "@body('Get_file_metadata')?['ETag']",
-              "item/GanttWorkingETag": "@body('Get_file_metadata')?['ETag']",
-              "item/FechaUltimaModificacionGantt": "@body('Get_file_metadata')?['Modified']",
+              "item/UltimoETagAutomatizacion": "__POWER_AUTOMATE_PENDING_ETAG__",
               "item/UltimoErrorSyncExcel": "",
               "item/ProximoIntentoSyncExcel": null
             },

@@ -180,42 +180,17 @@ def build_definition() -> dict[str, Any]:
                 "type": "If",
                 "expression": success_expression,
                 "actions": {
-                    "Wait_for_SharePoint_metadata": {
-                        "runAfter": {},
-                        "type": "Wait",
-                        "inputs": {
-                            "interval": {"count": 30, "unit": "Second"}
-                        },
-                    },
-                    "Get_file_metadata": open_api_action(
-                        connection="shared_sharepointonline",
-                        operation="GetFileMetadata",
-                        parameters={
-                            "dataset": SITE_URL,
-                            "id": "@triggerBody()?['GanttWorkingIdentifier']",
-                        },
-                        run_after={
-                            "Wait_for_SharePoint_metadata": ["Succeeded"]
-                        },
-                    ),
                     "Mark_sync_success": sharepoint_update(
                         {
                             "StatusExcel": final_status,
                             "EstadoSyncExcel": "Sincronizado",
                             "FechaUltimoSyncExcel": "@utcNow()",
                             "UltimoETagAutomatizacion": (
-                                "@body('Get_file_metadata')?['ETag']"
-                            ),
-                            "GanttWorkingETag": (
-                                "@body('Get_file_metadata')?['ETag']"
-                            ),
-                            "FechaUltimaModificacionGantt": (
-                                "@body('Get_file_metadata')?['Modified']"
+                                "__POWER_AUTOMATE_PENDING_ETAG__"
                             ),
                             "UltimoErrorSyncExcel": "",
                             "ProximoIntentoSyncExcel": None,
                         },
-                        run_after={"Get_file_metadata": ["Succeeded"]},
                     ),
                 },
                 "else": {
