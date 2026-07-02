@@ -792,10 +792,17 @@ class AutomationService:
         try:
             artifact = self.backend.create_initial_version(record)
         except Exception as exc:
+            error_message = sanitize_error(exc)[:500]
+            print(
+                f"ERROR: versioning control={record.item_id} "
+                f"project={record.project_id or '(sin ProyectoID)'} "
+                f"reason={error_message}",
+                file=sys.stderr,
+            )
             self.backend.patch_control(
                 record.item_id,
                 {
-                    "UltimoErrorVersionado": sanitize_error(exc)[:500],
+                    "UltimoErrorVersionado": error_message,
                     "VersionadoIntentos": record.version_attempts + 1,
                 },
             )
@@ -1330,10 +1337,19 @@ class SharePointBackend:
     def _download_drive_item(self, item: dict[str, Any]) -> bytes:
         drive_id = str((item.get("parentReference") or {}).get("driveId") or "")
         item_id = str(item.get("id") or "")
-        if not drive_id or not item_id:
-            raise RuntimeError("El archivo no devolvió driveId/itemId.")
+        if not item_id:
+            raise RuntimeError("El archivo no devolvió itemId.")
+        if drive_id:
+            content_url = (
+                f"{GRAPH_BASE}/drives/{drive_id}/items/{item_id}/content"
+            )
+        else:
+            content_url = (
+                f"{GRAPH_BASE}/sites/{self.site_id}/drive/items/"
+                f"{item_id}/content"
+            )
         response = requests.get(
-            f"{GRAPH_BASE}/drives/{drive_id}/items/{item_id}/content",
+            content_url,
             headers={"Authorization": f"Bearer {self.token}"},
             timeout=120,
         )
@@ -1457,7 +1473,7 @@ class SharePointBackend:
                 (
                     f"{GRAPH_BASE}/sites/{self.site_id}/drive/root:/"
                     f"{encoded_drive_path(version_folder)}:/children"
-                    "?$select=id,name,webUrl,file,eTag&$top=999"
+                    "?$select=id,name,webUrl,file,eTag,parentReference&$top=999"
                 ),
             ).get("value") or []
             prefix = f"{project_id}_gantt_".casefold()

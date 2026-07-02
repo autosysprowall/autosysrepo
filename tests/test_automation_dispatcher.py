@@ -921,6 +921,32 @@ class VersioningTests(unittest.TestCase):
             put_bytes.call_args.args[1],
         )
 
+    def test_download_drive_item_falls_back_to_site_drive_without_drive_id(self) -> None:
+        backend = SharePointBackend.__new__(SharePointBackend)
+        backend.token = "token"
+        backend.site_id = "site-id"
+        response = type(
+            "Response",
+            (),
+            {
+                "status_code": 200,
+                "content": b"xlsx-content",
+                "text": "",
+            },
+        )()
+
+        with patch(
+            "src.automation_dispatcher.requests.get",
+            return_value=response,
+        ) as get:
+            content = backend._download_drive_item({"id": "version-id"})
+
+        self.assertEqual(b"xlsx-content", content)
+        self.assertIn(
+            "/sites/site-id/drive/items/version-id/content",
+            get.call_args.args[0],
+        )
+
     def test_sharepoint_backend_never_replaces_existing_version(self) -> None:
         backend = SharePointBackend.__new__(SharePointBackend)
         backend.token = "token"
