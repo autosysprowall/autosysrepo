@@ -135,23 +135,27 @@ mantendrá durante la validación con el supervisor.
 
 ## Status del Excel
 
-Los Gantts nuevos incluyen en `Datos`:
+Los Gantts nuevos muestran el estado general en la hoja `Gantt`:
 
 ```text
-EstadoGantt | En progreso
+Gantt!A6 | Estado general del Gantt
+Gantt!B6 | En progreso
 ```
 
-La celda de valor tiene una lista con `En progreso` y `En revisión inicial`.
+`Gantt!B6` tiene una lista con `En progreso` y `En revisión inicial`. El
+dispatcher prioriza esta celda visible y conserva `EstadoGantt` en `Datos`
+únicamente como compatibilidad para libros anteriores.
+
 Power Automate registra un evento `gantt_working_modificado`; Python descarga el
-libro y lee ese campo. Si encuentra `En revisión inicial`, actualiza:
+libro y lee el estado. Si encuentra `En revisión inicial`, actualiza:
 
 - `EstadoGantt = En revisión inicial`;
 - `FechaEnvioRevision`, solo si estaba vacía;
 - `DiasParaCompletar`;
 - `StatusExcel` y `FechaLecturaStatusExcel`.
 
-No se crea una versión ni se mueve el archivo. Los Gantts antiguos sin ese campo
-continúan usando el estado de la lista hasta que se agregue manualmente.
+Los Gantts antiguos que solo tengan `EstadoGantt` en `Datos` continúan siendo
+compatibles.
 
 ## Dispatcher y horario
 

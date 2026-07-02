@@ -595,6 +595,14 @@ class GanttWorkbookTests(unittest.TestCase):
                 self.assertEqual("=SUM(1,2)", wb["Presupuesto"]["L2"].value)
 
                 ws = wb["Gantt"]
+                self.assertEqual("Estado general del Gantt", ws["A6"].value)
+                self.assertEqual("En progreso", ws["B6"].value)
+                self.assertTrue(
+                    any(
+                        "B6" in str(validation.sqref)
+                        for validation in ws.data_validations.dataValidation
+                    )
+                )
                 headers = [
                     ws.cell(HEADER_ROW, column).value
                     for column in range(1, 10)

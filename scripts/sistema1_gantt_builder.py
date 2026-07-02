@@ -31,6 +31,10 @@ from sistema1_llm_planner import request_llm_column_mapping, request_llm_plan
 HEADER_ROW = 10
 WEEKDAY_ROW = 11
 DATA_START_ROW = 12
+PROJECT_STATUS_LABEL_CELL = "A6"
+PROJECT_STATUS_VALUE_CELL = "B6"
+PROJECT_STATUS_LABEL = "Estado general del Gantt"
+PROJECT_STATUS_DEFAULT = "En progreso"
 START_DATE_COL = 5
 END_DATE_COL = 6
 DAILY_START_COL = 9
@@ -1657,6 +1661,33 @@ def _style_gantt_sheet(
         cell = ws.cell(row_number, 1, text)
         cell.font = Font(bold=bold, size=size, color="1F3864")
         cell.alignment = Alignment(horizontal="left", vertical="center")
+
+    status_label = ws[PROJECT_STATUS_LABEL_CELL]
+    status_label.value = PROJECT_STATUS_LABEL
+    status_label.fill = PatternFill("solid", fgColor="1F3864")
+    status_label.font = Font(bold=True, color="FFFFFF")
+    status_label.alignment = Alignment(horizontal="left", vertical="center")
+    status_label.border = border
+
+    status_value = ws[PROJECT_STATUS_VALUE_CELL]
+    status_value.value = PROJECT_STATUS_DEFAULT
+    status_value.fill = PatternFill("solid", fgColor="D9EAF7")
+    status_value.font = Font(bold=True, color="1F3864")
+    status_value.alignment = Alignment(horizontal="center", vertical="center")
+    status_value.border = border
+
+    project_status_validation = DataValidation(
+        type="list",
+        formula1='"En progreso,En revisión inicial"',
+        allow_blank=False,
+    )
+    project_status_validation.error = (
+        "Seleccione En progreso o En revisión inicial."
+    )
+    project_status_validation.errorTitle = "Estado inválido"
+    ws.add_data_validation(project_status_validation)
+    project_status_validation.add(PROJECT_STATUS_VALUE_CELL)
+    ws.row_dimensions[6].height = 24
     ws.row_dimensions[HEADER_ROW].height = 34
     ws.row_dimensions[WEEKDAY_ROW].height = 18
     for row_number in range(DATA_START_ROW, data_end_row + 1):

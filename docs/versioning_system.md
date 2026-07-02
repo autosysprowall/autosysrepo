@@ -6,8 +6,8 @@ El versionado usa la misma fila del proyecto en
 ## Disparador
 
 1. El ingeniero termina el cronograma en el Gantt WORKING.
-2. Cambia la celda existente `EstadoGantt` de la hoja `Datos` a
-   `En revisión inicial`.
+2. Cambia el selector visible `Gantt!B6`, rotulado
+   `Estado general del Gantt`, a `En revisión inicial`.
 3. El dispatcher lee directamente el Excel en cada ejecución.
 4. Si existe un evento `gantt_working_modificado`, también lo procesa como vía
    rápida, pero el evento no es obligatorio.

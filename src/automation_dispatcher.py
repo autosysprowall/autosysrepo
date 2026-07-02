@@ -234,12 +234,34 @@ def _neighbor_values(ws: Any, row: int, column: int) -> list[Any]:
 def extract_workbook_metadata(content: bytes) -> WorkbookMetadata:
     workbook = load_workbook(io.BytesIO(content), data_only=True, read_only=False)
     try:
+        status = ""
+        if "Gantt" in workbook.sheetnames:
+            gantt_ws = workbook["Gantt"]
+            for row in gantt_ws.iter_rows(min_row=1, max_row=min(15, gantt_ws.max_row)):
+                for cell in row:
+                    label = normalized(cell.value)
+                    if label in {
+                        "estado general del gantt",
+                        "estado general gantt",
+                    }:
+                        for value in _neighbor_values(
+                            gantt_ws,
+                            cell.row,
+                            cell.column,
+                        )[1:]:
+                            candidate = str(value or "").strip()
+                            if candidate:
+                                status = candidate
+                                break
+                    if status:
+                        break
+                if status:
+                    break
         if "Datos" not in workbook.sheetnames:
-            return WorkbookMetadata()
+            return WorkbookMetadata(status=status)
         ws = workbook["Datos"]
         engineer = ""
         supervisors = ""
-        status = ""
         project_id = ""
         for row in ws.iter_rows():
             for cell in row:

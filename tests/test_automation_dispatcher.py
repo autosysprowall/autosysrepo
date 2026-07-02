@@ -389,6 +389,22 @@ class StatusAndMetadataTests(unittest.TestCase):
         self.assertEqual("uno@example.com;dos@example.com", metadata.supervisors_email)
         self.assertEqual("En revisión inicial", metadata.status)
 
+    def test_visible_gantt_status_takes_priority_over_datos(self) -> None:
+        workbook = Workbook()
+        gantt = workbook.active
+        gantt.title = "Gantt"
+        gantt["A6"] = "Estado general del Gantt"
+        gantt["B6"] = "En revisión inicial"
+        datos = workbook.create_sheet("Datos")
+        datos["A1"] = "EstadoGantt"
+        datos["B1"] = "En progreso"
+        stream = io.BytesIO()
+        workbook.save(stream)
+        workbook.close()
+
+        metadata = extract_workbook_metadata(stream.getvalue())
+        self.assertEqual("En revisión inicial", metadata.status)
+
 
 class VersioningTests(unittest.TestCase):
     @staticmethod
