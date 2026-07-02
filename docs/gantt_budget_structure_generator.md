@@ -212,12 +212,15 @@ se copian encima del encabezado principal del Gantt.
 
 ## Calendario
 
-El calendario usa `Fecha de Inicio` y `Fecha Final` de `Datos`. Cuando ambas
-existen, `Fecha Final` tiene prioridad sobre una duración incompatible.
+El calendario usa exclusivamente `Fecha de Inicio` y `Fecha Final` de `Datos`.
+La celda o fila `Duracion` se elimina del Gantt generado y nunca se usa para
+calcular, extender ni corregir el calendario.
 
-Si falta uno de los extremos, `Duracion` puede expresarse en días, semanas,
-meses o años y se usa para calcular únicamente el límite visual del proyecto.
-Nunca se inventan fechas por actividad.
+Ambas fechas explícitas son obligatorias. Si falta cualquiera de ellas, el
+presupuesto se marca para revisión con
+`CALENDARIO_SIN_FECHAS_EXPLICITAS`; no se crea una ventana temporal ni se
+infieren fechas desde días, semanas, meses o años. Nunca se inventan fechas por
+actividad.
 
 El calendario visible se extiende 365 días después de la `Fecha Final`
 contractual. El período contractual se muestra en azul y la extensión en rojo.

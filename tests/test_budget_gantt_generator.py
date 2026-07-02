@@ -37,14 +37,12 @@ def add_datos(
     *,
     start: date = date(2026, 7, 1),
     end: date = date(2026, 7, 12),
-    duration: str = "2 meses",
 ) -> None:
     ws = wb.create_sheet("Datos")
     ws.append(["Ingeniero residente", "ingeniero@example.com"])
     ws.append(["Supervisores", "supervisor@example.com"])
     ws.append(["Fecha de Inicio", start])
     ws.append(["Fecha Final", end])
-    ws.append(["Duracion", duration])
     ws.append(["Status", "En revisión inicial"])
     ws.append(["EstadoGantt", "En revisión inicial"])
 
@@ -491,20 +489,29 @@ class GanttWorkbookTests(unittest.TestCase):
             ws.append(["Concreto", "m3", 2, 100, 200])
         self.assertTrue(requires_general_budget_label(wb, "CAMPO (3)"))
 
-    def test_project_calendar_understands_duration_units_and_prioritizes_end(self) -> None:
+    def test_project_calendar_uses_only_explicit_start_and_end(self) -> None:
+        wb = Workbook()
+        wb.remove(wb.active)
+        datos = wb.create_sheet("Datos")
+        datos.append(["Fecha de Inicio", date(2026, 7, 1)])
+        datos.append(["Fecha Final", date(2026, 8, 20)])
+        datos.append(["Duración", "2 semanas"])
+        start, end, notes = read_project_window(wb)
+        self.assertEqual(date(2026, 7, 1), start)
+        self.assertEqual(date(2026, 8, 20), end)
+        self.assertTrue(any("exclusivamente" in note for note in notes))
+
+    def test_project_calendar_does_not_infer_missing_date_from_duration(self) -> None:
         wb = Workbook()
         wb.remove(wb.active)
         datos = wb.create_sheet("Datos")
         datos.append(["Fecha de Inicio", date(2026, 7, 1)])
         datos.append(["Duración", "2 semanas"])
-        start, end, _ = read_project_window(wb)
-        self.assertEqual(date(2026, 7, 1), start)
-        self.assertEqual(date(2026, 7, 14), end)
-
-        datos.append(["Fecha Final", date(2026, 8, 20)])
-        _, prioritized_end, notes = read_project_window(wb)
-        self.assertEqual(date(2026, 8, 20), prioritized_end)
-        self.assertTrue(any("prioridad" in note for note in notes))
+        with self.assertRaisesRegex(
+            GanttReviewRequiredError,
+            "CALENDARIO_SIN_FECHAS_EXPLICITAS.*Fecha Final",
+        ):
+            read_project_window(wb)
 
     def test_invalid_budget_is_stopped_for_manual_review(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -560,6 +567,12 @@ class GanttWorkbookTests(unittest.TestCase):
                 ],
                 preamble_rows=4,
             )
+            source_wb = load_workbook(source)
+            source_wb["Datos"].insert_rows(5)
+            source_wb["Datos"]["A5"] = "Duración"
+            source_wb["Datos"]["B5"] = "99 semanas"
+            source_wb.save(source)
+            source_wb.close()
             result = build_gantt_workbook(
                 source,
                 output,
@@ -581,6 +594,13 @@ class GanttWorkbookTests(unittest.TestCase):
                     wb["AutosysVersionBaseline"].sheet_state,
                 )
                 datos = wb["Datos"]
+                self.assertFalse(
+                    any(
+                        "duraci" in str(cell.value or "").casefold()
+                        for row in datos.iter_rows()
+                        for cell in row
+                    )
+                )
                 status_values = [
                     datos.cell(row, column + 1).value
                     for row in range(1, datos.max_row + 1)

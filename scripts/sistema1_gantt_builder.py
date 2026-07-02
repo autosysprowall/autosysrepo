@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import calendar
 import io
 import json
 import re
@@ -39,7 +38,6 @@ PROJECT_STATUS_VALUES = ("Actual", "En Progreso", "Entregar")
 START_DATE_COL = 5
 END_DATE_COL = 6
 DAILY_START_COL = 9
-DEFAULT_WINDOW_DAYS = 90
 CALENDAR_EXTENSION_DAYS = 365
 VERSION_BASELINE_SHEET = "AutosysVersionBaseline"
 CATEGORY_ORDER = ("PRELIMINARES", "FABRICA", "CAMPO", "ACABADOS")
@@ -333,96 +331,33 @@ def find_label_and_value(ws, label_terms: tuple[str, ...]) -> tuple[str, Any]:
     return "", None
 
 
-def parse_duration_value(label: str, value: Any) -> tuple[int | None, str]:
-    text = normalize_text(f"{label} {display_text(value, 80)}")
-    amount = parse_int_value(value)
-    if amount is None:
-        amount = parse_int_value(text)
-    if amount is None or amount <= 0:
-        return None, "days"
-    if any(term in text for term in ("ano", "anos", "year", "years")):
-        return amount, "years"
-    if any(term in text for term in ("mes", "meses", "month", "months")):
-        return amount, "months"
-    if any(term in text for term in ("semana", "semanas", "week", "weeks")):
-        return amount, "weeks"
-    return amount, "days"
-
-
-def add_calendar_duration(start: date, amount: int, unit: str) -> date:
-    if unit == "days":
-        return start + timedelta(days=amount - 1)
-    if unit == "weeks":
-        return start + timedelta(weeks=amount) - timedelta(days=1)
-    months = amount * 12 if unit == "years" else amount
-    month_index = start.month - 1 + months
-    year = start.year + month_index // 12
-    month = month_index % 12 + 1
-    day = min(start.day, calendar.monthrange(year, month)[1])
-    return date(year, month, day) - timedelta(days=1)
-
-
-def subtract_calendar_duration(end: date, amount: int, unit: str) -> date:
-    if unit == "days":
-        return end - timedelta(days=amount - 1)
-    if unit == "weeks":
-        return end - timedelta(weeks=amount) + timedelta(days=1)
-    months = amount * 12 if unit == "years" else amount
-    month_index = end.month - 1 - months
-    year = end.year + month_index // 12
-    month = month_index % 12 + 1
-    day = min(end.day, calendar.monthrange(year, month)[1])
-    return date(year, month, day) + timedelta(days=1)
-
-
 def read_project_window(wb) -> tuple[date, date, list[str]]:
     notes: list[str] = []
     start = None
     end = None
-    duration_amount = None
-    duration_unit = "days"
 
     if "Datos" in wb.sheetnames:
         ws = wb["Datos"]
         start = parse_date_value(find_value_near_label(ws, ("fecha", "inicio")))
         end = parse_date_value(find_value_near_label(ws, ("fecha", "final")))
-        duration_label, duration_value = find_label_and_value(ws, ("duracion",))
-        duration_amount, duration_unit = parse_duration_value(duration_label, duration_value)
 
     if start and end:
         if end < start:
             start, end = end, start
             notes.append("Fechas de Datos venían invertidas; se ordenaron.")
-        notes.append(
-            "Calendario delimitado por Fecha de Inicio y Fecha Final; "
-            "Fecha Final tuvo prioridad sobre Duración."
-        )
-    elif start and duration_amount and not end:
-        end = add_calendar_duration(start, duration_amount, duration_unit)
-        notes.append(
-            f"Fecha Final calculada desde Duración ({duration_amount} {duration_unit})."
-        )
-    elif end and duration_amount and not start:
-        start = subtract_calendar_duration(end, duration_amount, duration_unit)
-        notes.append(
-            f"Fecha de Inicio calculada hacia atrás desde Fecha Final "
-            f"({duration_amount} {duration_unit})."
-        )
-    elif start and end and end < start:
-        start, end = end, start
-        notes.append("Fechas de Datos venían invertidas; se ordenaron.")
+        notes.append("Calendario delimitado exclusivamente por Fecha de Inicio y Fecha Final.")
+        return start, end, notes
 
+    missing = []
     if not start:
-        today = date.today()
-        start = date(today.year, today.month, 1)
-        notes.append("No se encontró fecha de inicio; se usó una ventana visual temporal.")
+        missing.append("Fecha de Inicio")
     if not end:
-        end = start + timedelta(days=DEFAULT_WINDOW_DAYS - 1)
-        notes.append(
-            f"No se encontró fecha final; se usó una ventana visual de "
-            f"{DEFAULT_WINDOW_DAYS} días."
-        )
-    return start, end, notes
+        missing.append("Fecha Final")
+    raise GanttReviewRequiredError(
+        "CALENDARIO_SIN_FECHAS_EXPLICITAS: faltan "
+        + " y ".join(missing)
+        + " en la hoja Datos. Duración no se utiliza para calcular el calendario."
+    )
 
 
 def select_budget_sheet(wb) -> str:
@@ -1704,6 +1639,14 @@ def _metadata_sheet(wb, identity: ProjectIdentity, source_file: str, source_shee
         ws = wb["Datos"]
     else:
         ws = wb.create_sheet("Datos")
+    duration_rows = {
+        cell.row
+        for row in ws.iter_rows()
+        for cell in row
+        if normalize_text(cell.value) in {"duracion", "duration"}
+    }
+    for row_number in sorted(duration_rows, reverse=True):
+        ws.delete_rows(row_number, 1)
     existing: dict[str, int] = {}
     status_found = False
     for row_number in range(1, ws.max_row + 1):
