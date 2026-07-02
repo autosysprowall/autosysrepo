@@ -90,6 +90,29 @@ jobs:
                   )
               )
           if not matches:
+              next_url = (
+                  "https://graph.microsoft.com/v1.0/users/"
+                  "auto.sys@prowallpanama.com/drive/root/delta"
+                  "?$select=id,name,parentReference,file"
+              )
+              while next_url:
+                  scripts = requests.get(
+                      next_url,
+                      headers=headers,
+                      timeout=60,
+                  )
+                  scripts.raise_for_status()
+                  page = scripts.json()
+                  matches.extend(
+                      item
+                      for item in page.get("value", [])
+                      if item.get("name", "").casefold().startswith(
+                          "setganttstatus"
+                      )
+                      or item.get("name", "").casefold().endswith(".osts")
+                  )
+                  next_url = page.get("@odata.nextLink")
+          if not matches:
               raise RuntimeError("No se encontró el Office Script SetGanttStatus.")
           for item in matches:
               parent = item.get("parentReference") or {}
