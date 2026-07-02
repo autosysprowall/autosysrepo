@@ -162,7 +162,14 @@ def build_definition() -> dict[str, Any]:
     is_delivery = (
         "@and("
         f"equals({READ_VALID},true),"
-        f"equals({READ_STATUS},'Entregar')"
+        f"equals({READ_STATUS},'Entregar'),"
+        "or("
+        f"empty({CONTROL_ITEM}?['FechaUltimoVersionado']),"
+        "less("
+        f"ticks({CONTROL_ITEM}?['FechaUltimoVersionado']),"
+        "ticks(triggerBody()?['Modified'])"
+        ")"
+        ")"
         ")"
     )
     return {

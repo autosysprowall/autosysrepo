@@ -184,7 +184,7 @@
                   ]
                 },
                 "type": "If",
-                "expression": "@and(equals(outputs('Read_Gantt_status')?['body/result/valid'],true),equals(outputs('Read_Gantt_status')?['body/result/status'],'Entregar'))",
+                "expression": "@and(equals(outputs('Read_Gantt_status')?['body/result/valid'],true),equals(outputs('Read_Gantt_status')?['body/result/status'],'Entregar'),or(empty(first(body('Filter_control_items'))?['FechaUltimoVersionado']),less(ticks(first(body('Filter_control_items'))?['FechaUltimoVersionado']),ticks(triggerBody()?['Modified']))))",
                 "actions": {
                   "Mark_delivery_requested": {
                     "runAfter": {},

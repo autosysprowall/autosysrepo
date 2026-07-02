@@ -161,6 +161,8 @@ El flujo está desplegado y activo:
    - iniciar `FechaInicioEnProgreso` solo si estaba vacía;
    - solicitar `B6 = En Progreso` mediante `EstadoSyncExcel = Pendiente`.
 8. Si el estado es `Entregar`:
+   - ignorar el evento si `FechaUltimoVersionado` es igual o posterior a la
+     fecha `Modified` del evento, porque esa entrega ya fue procesada;
    - cambiar el control a `Entregar`;
    - activar `SolicitarVersionado`;
    - crear, si no existe otro pendiente, un item en
