@@ -10,6 +10,7 @@ from openpyxl import Workbook, load_workbook
 from src.automation_dispatcher import (
     AutomationService,
     ControlRecord,
+    GanttFileState,
     Notification,
     SharePointBackend,
     VersionArtifact,
@@ -20,7 +21,11 @@ from src.automation_dispatcher import (
     run_system2,
     sent_notification_updates,
 )
-from src.gantt_versioning import decide_version, snapshot_gantt
+from src.gantt_versioning import (
+    decide_version,
+    snapshot_gantt,
+    workbook_with_status,
+)
 
 
 NOW = datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc)
@@ -65,6 +70,19 @@ class FakeBackend:
             raise self.metadata_error
         return self.metadata
 
+    def load_gantt_file_state(
+        self,
+        record: ControlRecord,
+    ) -> GanttFileState:
+        if self.metadata_error:
+            raise self.metadata_error
+        return GanttFileState(
+            metadata=self.metadata,
+            etag=record.gantt_etag or '"etag-current"',
+            modified_at=NOW,
+            modified_by_email="ingeniero@example.com",
+        )
+
     def grant_edit_access(self, record: ControlRecord, email: str) -> None:
         if self.permission_error:
             raise self.permission_error
@@ -94,6 +112,7 @@ class FakeBackend:
             web_url="https://contoso.sharepoint.com/versionados/2026-001_gantt_v1.0.xlsx",
             file_name="2026-001_gantt_v1.0.xlsx",
             created=True,
+            source_etag='"etag-versioned"',
         )
 
 
@@ -118,7 +137,7 @@ class AssignmentTests(unittest.TestCase):
         result = AutomationService(backend, NOW).assign(record())
 
         self.assertTrue(result.permission_granted)
-        self.assertEqual("Asignado", result.state)
+        self.assertEqual("En Progreso", result.state)
         self.assertEqual(NOW + timedelta(days=9), result.deadline)
         self.assertEqual([("10", "ingeniero@example.com")], backend.grants)
         self.assertEqual(["AsignacionGantt"], [item.kind for _, item in backend.notifications])
@@ -138,7 +157,7 @@ class AssignmentTests(unittest.TestCase):
         self.assertIn("Abrir Gantt con permiso de edición</a>", notification.body)
         self.assertNotIn("Guía PDF Ingenieros + Planta", notification.body)
         merged = {key: value for _, patch in backend.patches for key, value in patch.items()}
-        self.assertEqual("Asignado", merged["EstadoGantt"])
+        self.assertEqual("En Progreso", merged["EstadoGantt"])
         self.assertTrue(merged["PermisoGanttOtorgado"])
 
     def test_identifier_only_assignment_resolves_editor_link_for_email(self) -> None:
@@ -241,7 +260,7 @@ class AssignmentTests(unittest.TestCase):
         backend = FakeBackend()
         backend.metadata_error = RuntimeError("Datos unreadable")
         result = AutomationService(backend, NOW).assign(record(supervisors_email=""))
-        self.assertEqual("Asignado", result.state)
+        self.assertEqual("En Progreso", result.state)
         self.assertEqual([("10", "ingeniero@example.com")], backend.grants)
 
     def test_supervisors_are_enriched_when_engineer_already_exists(self) -> None:
@@ -364,7 +383,7 @@ class StatusAndMetadataTests(unittest.TestCase):
             current,
             WorkbookMetadata(status="En revisión inicial"),
         )
-        self.assertEqual("En revisión inicial", result.state)
+        self.assertEqual("Entregar", result.state)
         merged = {key: value for _, patch in backend.patches for key, value in patch.items()}
         self.assertEqual(4, merged["DiasParaCompletar"])
         self.assertTrue(merged["SolicitarVersionado"])
@@ -405,6 +424,110 @@ class StatusAndMetadataTests(unittest.TestCase):
         metadata = extract_workbook_metadata(stream.getvalue())
         self.assertEqual("En revisión inicial", metadata.status)
 
+    def test_human_edit_moves_actual_to_en_progreso_and_starts_timer(self) -> None:
+        backend = FakeBackend()
+        current = record(
+            state="Actual",
+            current_version="v1.0",
+            gantt_etag='"etag-old"',
+        )
+        result = AutomationService(backend, NOW).observe_gantt_file(
+            current,
+            GanttFileState(
+                metadata=WorkbookMetadata(status="Actual"),
+                etag='"etag-human"',
+                modified_at=NOW,
+                modified_by_email="ingeniero@example.com",
+            ),
+        )
+        self.assertEqual("En Progreso", result.state)
+        self.assertEqual(NOW, result.progress_started_at)
+        merged = {
+            key: value
+            for _, patch_fields in backend.patches
+            for key, value in patch_fields.items()
+        }
+        self.assertEqual("En Progreso", merged["StatusExcelDeseado"])
+        self.assertEqual("Pendiente", merged["EstadoSyncExcel"])
+
+    def test_automation_etag_does_not_reopen_actual_version(self) -> None:
+        backend = FakeBackend()
+        current = record(
+            state="Actual",
+            current_version="v1.0",
+            gantt_etag='"etag-old"',
+            automation_etag='"etag-automation"',
+        )
+        result = AutomationService(backend, NOW).observe_gantt_file(
+            current,
+            GanttFileState(
+                metadata=WorkbookMetadata(status="Actual"),
+                etag='"etag-automation"',
+                modified_at=NOW,
+            ),
+        )
+        self.assertEqual("Actual", result.state)
+
+    def test_stale_actual_label_does_not_close_active_progress(self) -> None:
+        backend = FakeBackend()
+        current = record(
+            state="En Progreso",
+            current_version="v1.0",
+            gantt_etag='"etag-current"',
+            progress_started_at=NOW - timedelta(minutes=30),
+        )
+        result = AutomationService(backend, NOW).observe_gantt_file(
+            current,
+            GanttFileState(
+                metadata=WorkbookMetadata(status="Actual"),
+                etag='"etag-current"',
+                modified_at=NOW,
+            ),
+        )
+        self.assertEqual("En Progreso", result.state)
+        self.assertEqual(
+            NOW - timedelta(minutes=30),
+            result.progress_started_at,
+        )
+
+    def test_entregar_has_priority_over_edit_detection(self) -> None:
+        backend = FakeBackend()
+        current = record(
+            state="Actual",
+            current_version="v1.0",
+            gantt_etag='"etag-old"',
+        )
+        result = AutomationService(backend, NOW).observe_gantt_file(
+            current,
+            GanttFileState(
+                metadata=WorkbookMetadata(status="Entregar"),
+                etag='"etag-human"',
+                modified_at=NOW,
+            ),
+        )
+        self.assertEqual("Entregar", result.state)
+        self.assertTrue(result.version_requested)
+
+    def test_legacy_review_label_does_not_reopen_closed_actual(self) -> None:
+        backend = FakeBackend()
+        current = record(
+            state="Actual",
+            current_version="v1.0",
+            gantt_etag='"etag-current"',
+        )
+        result = AutomationService(backend, NOW).observe_gantt_file(
+            current,
+            GanttFileState(
+                metadata=WorkbookMetadata(
+                    status="En revisión inicial"
+                ),
+                etag='"etag-current"',
+                modified_at=NOW,
+            ),
+        )
+        self.assertEqual("Actual", result.state)
+        self.assertFalse(result.version_requested)
+
 
 class VersioningTests(unittest.TestCase):
     @staticmethod
@@ -441,6 +564,32 @@ class VersioningTests(unittest.TestCase):
         workbook.close()
         return stream.getvalue()
 
+    def test_version_copy_status_is_actual(self) -> None:
+        workbook = Workbook()
+        gantt = workbook.active
+        gantt.title = "Gantt"
+        gantt["A6"] = "Estado general del Gantt"
+        gantt["B6"] = "Entregar"
+        stream = io.BytesIO()
+        workbook.save(stream)
+        workbook.close()
+
+        updated = workbook_with_status(stream.getvalue(), "Actual")
+        reopened = load_workbook(io.BytesIO(updated), data_only=True)
+        try:
+            self.assertEqual("Actual", reopened["Gantt"]["B6"].value)
+            validation = next(
+                item
+                for item in reopened["Gantt"].data_validations.dataValidation
+                if "B6" in str(item.sqref)
+            )
+            self.assertEqual(
+                '"Actual,En Progreso,Entregar"',
+                validation.formula1,
+            )
+        finally:
+            reopened.close()
+
     def test_requested_review_creates_v1_and_closes_control(self) -> None:
         backend = FakeBackend()
         current = record(
@@ -452,13 +601,37 @@ class VersioningTests(unittest.TestCase):
 
         self.assertEqual(["10"], backend.versions)
         self.assertEqual("v1.0", result.current_version)
-        self.assertEqual("Aprobado / Versionado", result.state)
+        self.assertEqual("Actual", result.state)
         self.assertFalse(result.version_requested)
         merged = {key: value for _, patch in backend.patches for key, value in patch.items()}
         self.assertEqual("v1.0", merged["VersionActual"])
         self.assertEqual("version-item-id", merged["GanttVersionIdentifier"])
         self.assertFalse(merged["SolicitarVersionado"])
         self.assertIn("FechaAprobacion", merged)
+
+    def test_successful_delivery_closes_progress_timer(self) -> None:
+        backend = FakeBackend()
+        current = record(
+            state="Entregar",
+            version_requested=True,
+            progress_started_at=NOW - timedelta(minutes=90),
+            progress_minutes_accumulated=10,
+        )
+
+        result = AutomationService(backend, NOW).version(current)
+
+        self.assertEqual("Actual", result.state)
+        self.assertEqual(100, result.progress_minutes_accumulated)
+        self.assertIsNone(result.progress_started_at)
+        merged = {
+            key: value
+            for _, patch_fields in backend.patches
+            for key, value in patch_fields.items()
+        }
+        self.assertEqual(0, merged["MinutosEnProgresoActual"])
+        self.assertEqual(100, merged["MinutosEnProgresoAcumulados"])
+        self.assertEqual("Actual", merged["StatusExcelDeseado"])
+        self.assertEqual("Pendiente", merged["EstadoSyncExcel"])
 
     def test_existing_v1_is_reassessed_before_reapproval(self) -> None:
         backend = FakeBackend()
@@ -473,7 +646,7 @@ class VersioningTests(unittest.TestCase):
 
         self.assertEqual(["10"], backend.versions)
         self.assertFalse(result.version_requested)
-        self.assertEqual("Aprobado / Versionado", result.state)
+        self.assertEqual("Actual", result.state)
 
     def test_cost_increase_selects_v2(self) -> None:
         decision = decide_version(
@@ -541,7 +714,7 @@ class VersioningTests(unittest.TestCase):
         self.assertTrue(result.version_requested)
         merged = {key: value for _, patch in backend.patches for key, value in patch.items()}
         self.assertEqual(3, merged["VersionadoIntentos"])
-        self.assertIn("En revisión inicial", merged["UltimoErrorVersionado"])
+        self.assertIn("Entregar", merged["UltimoErrorVersionado"])
 
     def test_version_failure_keeps_request_and_records_error(self) -> None:
         backend = FakeBackend()
@@ -594,6 +767,10 @@ class VersioningTests(unittest.TestCase):
                         "reasons": ("Sin aumento.",),
                     },
                 )(),
+            ),
+            patch(
+                "src.automation_dispatcher.workbook_with_status",
+                return_value=b"version-content",
             ),
             patch("src.automation_dispatcher.ensure_drive_folder") as ensure_folder,
             patch(
@@ -651,6 +828,10 @@ class VersioningTests(unittest.TestCase):
                         "reasons": ("Sin aumento.",),
                     },
                 )(),
+            ),
+            patch(
+                "src.automation_dispatcher.workbook_with_status",
+                return_value=b"version-content",
             ),
             patch(
                 "src.automation_dispatcher.get_drive_item_by_path",
@@ -749,11 +930,11 @@ class DispatcherTests(unittest.TestCase):
             for _, patch in backend.patches
             for key, value in patch.items()
         }
-        self.assertEqual("Aprobado / Versionado", merged["EstadoGantt"])
+        self.assertEqual("Actual", merged["EstadoGantt"])
         self.assertEqual("v1.0", merged["VersionActual"])
         self.assertTrue(
             any(
-                patch.get("EstadoGantt") == "En revisión inicial"
+                patch.get("EstadoGantt") == "Entregar"
                 for _, patch in backend.patches
             )
         )
@@ -808,7 +989,7 @@ class DispatcherTests(unittest.TestCase):
         self.assertEqual(1, summary["versioned"])
         self.assertTrue(
             any(
-                patch.get("EstadoGantt") == "En revisión inicial"
+                patch.get("EstadoGantt") == "Entregar"
                 and patch.get("SolicitarVersionado") is True
                 for _, patch in backend.patches
             )

@@ -34,7 +34,8 @@ DATA_START_ROW = 12
 PROJECT_STATUS_LABEL_CELL = "A6"
 PROJECT_STATUS_VALUE_CELL = "B6"
 PROJECT_STATUS_LABEL = "Estado general del Gantt"
-PROJECT_STATUS_DEFAULT = "En progreso"
+PROJECT_STATUS_DEFAULT = "En Progreso"
+PROJECT_STATUS_VALUES = ("Actual", "En Progreso", "Entregar")
 START_DATE_COL = 5
 END_DATE_COL = 6
 DAILY_START_COL = 9
@@ -1111,7 +1112,7 @@ def write_metadata_sheet(wb, identity: ProjectIdentity, source_file: str, select
         ("ArchivoPresupuesto", source_file),
         ("HojaPresupuestoUsada", selected_sheet),
         ("Notas", " | ".join(notes)),
-        ("EstadoGantt", "En progreso"),
+        ("EstadoGantt", PROJECT_STATUS_DEFAULT),
     ]
     for row_idx, (label, value) in enumerate(rows, start=1):
         ws.cell(row_idx, 1).value = label
@@ -1125,6 +1126,7 @@ def write_metadata_sheet(wb, identity: ProjectIdentity, source_file: str, select
         allow_blank=False,
     )
     ws.add_data_validation(status_validation)
+    status_validation.formula1 = f'"{",".join(PROJECT_STATUS_VALUES)}"'
     status_validation.add("B6")
     ws.freeze_panes = None
 
@@ -1685,6 +1687,8 @@ def _style_gantt_sheet(
         "Seleccione En progreso o En revisión inicial."
     )
     project_status_validation.errorTitle = "Estado inválido"
+    project_status_validation.formula1 = f'"{",".join(PROJECT_STATUS_VALUES)}"'
+    project_status_validation.error = "Seleccione Actual, En Progreso o Entregar."
     ws.add_data_validation(project_status_validation)
     project_status_validation.add(PROJECT_STATUS_VALUE_CELL)
     ws.row_dimensions[6].height = 24
@@ -1716,7 +1720,7 @@ def _metadata_sheet(wb, identity: ProjectIdentity, source_file: str, source_shee
                 "status gantt",
                 "status",
             }:
-                ws.cell(row_number, column_number + 1).value = "En progreso"
+                ws.cell(row_number, column_number + 1).value = PROJECT_STATUS_DEFAULT
                 status_found = True
     additions = [
         ("ProyectoID", identity.project_id),
@@ -1726,7 +1730,7 @@ def _metadata_sheet(wb, identity: ProjectIdentity, source_file: str, source_shee
         ("NotasGeneradorGantt", " | ".join(notes)),
     ]
     if not status_found:
-        additions.append(("EstadoGantt", "En progreso"))
+        additions.append(("EstadoGantt", PROJECT_STATUS_DEFAULT))
     row_number = max(1, ws.max_row + 1)
     for label, value in additions:
         if normalize_text(label) in existing:

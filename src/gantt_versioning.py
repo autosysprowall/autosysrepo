@@ -8,10 +8,15 @@ from datetime import date, datetime
 from typing import Any
 
 from openpyxl import load_workbook
+from openpyxl.worksheet.datavalidation import DataValidation
 
 
 HEADER_SCAN_LIMIT = 30
 COST_TOLERANCE = 0.01
+PROJECT_STATUS_LABELS = {
+    "estado general del gantt",
+    "estado general gantt",
+}
 
 
 def _normalized(value: Any) -> str:
@@ -223,3 +228,46 @@ def decide_version(working_content: bytes, baseline_v1_content: bytes | None) ->
         schedule_overrun=working.schedule_overrun,
         reasons=tuple(reasons),
     )
+
+
+def workbook_with_status(content: bytes, status: str) -> bytes:
+    workbook = load_workbook(
+        io.BytesIO(content),
+        data_only=False,
+        read_only=False,
+    )
+    try:
+        if "Gantt" not in workbook.sheetnames:
+            raise ValueError("El archivo no contiene la hoja Gantt.")
+        ws = workbook["Gantt"]
+        status_cell = None
+        for row in ws.iter_rows(min_row=1, max_row=min(15, ws.max_row)):
+            for cell in row:
+                if _normalized(cell.value) in PROJECT_STATUS_LABELS:
+                    status_cell = ws.cell(cell.row, cell.column + 1)
+                    break
+            if status_cell is not None:
+                break
+        if status_cell is None:
+            raise ValueError(
+                "No se encontró la celda Estado general del Gantt."
+            )
+        status_cell.value = status
+        validation_found = False
+        for validation in ws.data_validations.dataValidation:
+            if status_cell.coordinate in validation:
+                validation.formula1 = '"Actual,En Progreso,Entregar"'
+                validation_found = True
+        if not validation_found:
+            validation = DataValidation(
+                type="list",
+                formula1='"Actual,En Progreso,Entregar"',
+                allow_blank=False,
+            )
+            ws.add_data_validation(validation)
+            validation.add(status_cell.coordinate)
+        output = io.BytesIO()
+        workbook.save(output)
+        return output.getvalue()
+    finally:
+        workbook.close()

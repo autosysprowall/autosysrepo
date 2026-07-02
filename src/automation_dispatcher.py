@@ -20,9 +20,9 @@ import requests
 from openpyxl import load_workbook
 
 try:
-    from .gantt_versioning import decide_version
+    from .gantt_versioning import decide_version, workbook_with_status
 except ImportError:  # Direct execution: python src/automation_dispatcher.py
-    from gantt_versioning import decide_version
+    from gantt_versioning import decide_version, workbook_with_status
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,8 +58,12 @@ QUEUE_LIST_NAME = "Cola_Automatizacion_Proyectos"
 NOTIFICATION_LIST_NAME = "Cola_Notificaciones_Gantt"
 FORBIDDEN_PATH = "proyectos terminados"
 ACTIVE_TRACKING_STATES = {"asignado", "en progreso"}
-CLOSED_STATES = {"aprobado / versionado", "vencido"}
-REVIEW_STATE = "En revisión inicial"
+CLOSED_STATES = {"actual", "aprobado / versionado", "vencido"}
+CURRENT_STATE = "Actual"
+IN_PROGRESS_STATE = "En Progreso"
+DELIVER_STATE = "Entregar"
+LEGACY_REVIEW_STATE = "En revisión inicial"
+REVIEW_STATE = DELIVER_STATE
 EMAIL_RE = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
 DEFAULT_GANTT_ESCALATION_CC = (
     "jaime.madrid@prowallpanama.com;"
@@ -86,6 +90,19 @@ CONTROL_COLUMNS: dict[str, dict[str, Any]] = {
     "UltimoErrorTracking": {"text": {"allowMultipleLines": True}},
     "StatusExcel": {"text": {}},
     "FechaLecturaStatusExcel": {"dateTime": {"format": "dateTime"}},
+    "StatusExcelDeseado": {"text": {}},
+    "EstadoSyncExcel": {"text": {}},
+    "IntentosSyncExcel": {"number": {}},
+    "ProximoIntentoSyncExcel": {"dateTime": {"format": "dateTime"}},
+    "UltimoErrorSyncExcel": {"text": {"allowMultipleLines": True}},
+    "FechaUltimoSyncExcel": {"dateTime": {"format": "dateTime"}},
+    "FechaInicioEnProgreso": {"dateTime": {"format": "dateTime"}},
+    "MinutosEnProgresoActual": {"number": {}},
+    "MinutosEnProgresoAcumulados": {"number": {}},
+    "FechaEntregaSolicitada": {"dateTime": {"format": "dateTime"}},
+    "GanttWorkingETag": {"text": {}},
+    "UltimoETagAutomatizacion": {"text": {}},
+    "FechaUltimaModificacionGantt": {"dateTime": {"format": "dateTime"}},
     "SolicitarVersionado": {"boolean": {}},
     "VersionActual": {"text": {}},
     "GanttVersionLink": {"text": {}},
@@ -128,6 +145,19 @@ def normalized(value: Any) -> str:
     text = unicodedata.normalize("NFKD", str(value or ""))
     text = "".join(char for char in text if not unicodedata.combining(char))
     return re.sub(r"\s+", " ", text).strip().casefold()
+
+
+def is_deliver_status(value: Any) -> bool:
+    return normalized(value) in {
+        normalized(DELIVER_STATE),
+        normalized(LEGACY_REVIEW_STATE),
+    }
+
+
+def elapsed_minutes(start: datetime | None, end: datetime) -> int:
+    if not start:
+        return 0
+    return max(0, int((end - start).total_seconds() // 60))
 
 
 def normalize_emails(value: Any) -> str:
@@ -324,6 +354,17 @@ class ControlRecord:
     version_identifier: str = ""
     versioned_at: datetime | None = None
     version_attempts: int = 0
+    progress_started_at: datetime | None = None
+    progress_minutes_current: int = 0
+    progress_minutes_accumulated: int = 0
+    delivery_requested_at: datetime | None = None
+    gantt_etag: str = ""
+    automation_etag: str = ""
+    gantt_modified_at: datetime | None = None
+    desired_excel_status: str = ""
+    excel_sync_state: str = ""
+    excel_sync_attempts: int = 0
+    next_excel_sync_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -334,6 +375,15 @@ class VersionArtifact:
     created: bool
     version: str = "v1.0"
     reasons: tuple[str, ...] = ()
+    source_etag: str = ""
+
+
+@dataclass(frozen=True)
+class GanttFileState:
+    metadata: WorkbookMetadata
+    etag: str = ""
+    modified_at: datetime | None = None
+    modified_by_email: str = ""
 
 
 @dataclass(frozen=True)
@@ -349,6 +399,8 @@ class AutomationBackend(Protocol):
     def patch_control(self, item_id: str, updates: dict[str, Any]) -> None: ...
 
     def load_metadata(self, record: ControlRecord, *, prefer_gantt: bool = True) -> WorkbookMetadata: ...
+
+    def load_gantt_file_state(self, record: ControlRecord) -> GanttFileState: ...
 
     def grant_edit_access(self, record: ControlRecord, email: str) -> None: ...
 
@@ -371,6 +423,9 @@ def assignment_notification(record: ControlRecord, assigned: datetime, deadline:
         f"<p><strong>Proyecto:</strong> {escape(project)}</p>"
         f"<p><a href=\"{escape(record.gantt_link, quote=True)}\">"
         "Abrir Gantt con permiso de edición</a></p>"
+        "<p>Cuando termine, seleccione <strong>Entregar</strong> en "
+        "<strong>Estado general del Gantt</strong>. No cambie el nombre ni "
+        "mueva el archivo.</p>"
     )
     guide = engineer_guide_line()
     if guide:
@@ -511,12 +566,15 @@ class AutomationService:
             "FechaLecturaStatusExcel": iso_utc(self.now),
             "UltimoTrackingRun": iso_utc(self.now),
         }
-        if normalized(metadata.status) == normalized(REVIEW_STATE):
+        if is_deliver_status(metadata.status):
             review_date = record.review_date or self.now
             updates.update(
                 {
-                    "EstadoGantt": REVIEW_STATE,
+                    "EstadoGantt": DELIVER_STATE,
                     "FechaEnvioRevision": iso_utc(review_date),
+                    "FechaEntregaSolicitada": iso_utc(
+                        record.delivery_requested_at or self.now
+                    ),
                     "SolicitarVersionado": True,
                 }
             )
@@ -524,12 +582,139 @@ class AutomationService:
                 updates["DiasParaCompletar"] = days_since(record.assignment_date, review_date)
             record = replace(
                 record,
-                state=REVIEW_STATE,
+                state=DELIVER_STATE,
                 review_date=review_date,
+                delivery_requested_at=record.delivery_requested_at or self.now,
                 version_requested=True,
+            )
+        elif (
+            normalized(metadata.status) == normalized(IN_PROGRESS_STATE)
+            and normalized(record.state) in ACTIVE_TRACKING_STATES
+        ):
+            progress_started = record.progress_started_at or self.now
+            updates.update(
+                {
+                    "EstadoGantt": IN_PROGRESS_STATE,
+                    "FechaInicioEnProgreso": iso_utc(progress_started),
+                    "MinutosEnProgresoActual": elapsed_minutes(
+                        progress_started,
+                        self.now,
+                    ),
+                }
+            )
+            record = replace(
+                record,
+                state=IN_PROGRESS_STATE,
+                progress_started_at=progress_started,
+                progress_minutes_current=elapsed_minutes(
+                    progress_started,
+                    self.now,
+                ),
             )
         self.backend.patch_control(record.item_id, updates)
         return record
+
+    def observe_gantt_file(
+        self,
+        record: ControlRecord,
+        file_state: GanttFileState,
+    ) -> ControlRecord:
+        metadata = file_state.metadata
+        updates: dict[str, Any] = {
+            "StatusExcel": metadata.status,
+            "FechaLecturaStatusExcel": iso_utc(self.now),
+            "UltimoTrackingRun": iso_utc(self.now),
+        }
+        if file_state.etag:
+            updates["GanttWorkingETag"] = file_state.etag
+        if file_state.modified_at:
+            updates["FechaUltimaModificacionGantt"] = iso_utc(
+                file_state.modified_at
+            )
+        retry_sync = (
+            normalized(record.excel_sync_state) == "error"
+            and record.excel_sync_attempts < 5
+            and (
+                record.next_excel_sync_at is None
+                or record.next_excel_sync_at <= self.now
+            )
+        )
+        if retry_sync:
+            updates.update(
+                {
+                    "EstadoSyncExcel": "Pendiente",
+                    "ProximoIntentoSyncExcel": None,
+                }
+            )
+
+        explicit_delivery = (
+            normalized(metadata.status) == normalized(DELIVER_STATE)
+        )
+        legacy_delivery_in_progress = (
+            normalized(metadata.status)
+            == normalized(LEGACY_REVIEW_STATE)
+            and normalized(record.state) in ACTIVE_TRACKING_STATES
+        )
+        if explicit_delivery or legacy_delivery_in_progress:
+            self.backend.patch_control(record.item_id, updates)
+            return self.sync_excel_status(record, metadata)
+
+        content_changed = bool(
+            record.gantt_etag
+            and file_state.etag
+            and file_state.etag != record.gantt_etag
+        )
+        automation_change = bool(
+            file_state.etag
+            and record.automation_etag
+            and file_state.etag == record.automation_etag
+        )
+        current_or_legacy_closed = normalized(record.state) in {
+            normalized(CURRENT_STATE),
+            "aprobado / versionado",
+        }
+
+        if (
+            current_or_legacy_closed
+            and content_changed
+            and not automation_change
+        ):
+            progress_started = self.now
+            updates.update(
+                {
+                    "EstadoGantt": IN_PROGRESS_STATE,
+                    "FechaInicioEnProgreso": iso_utc(progress_started),
+                    "MinutosEnProgresoActual": 0,
+                    "StatusExcelDeseado": IN_PROGRESS_STATE,
+                    "EstadoSyncExcel": "Pendiente",
+                    "IntentosSyncExcel": 0,
+                    "ProximoIntentoSyncExcel": None,
+                    "UltimoErrorSyncExcel": "",
+                }
+            )
+            self.backend.patch_control(record.item_id, updates)
+            return replace(
+                record,
+                state=IN_PROGRESS_STATE,
+                progress_started_at=progress_started,
+                progress_minutes_current=0,
+                gantt_etag=file_state.etag or record.gantt_etag,
+                gantt_modified_at=file_state.modified_at,
+                desired_excel_status=IN_PROGRESS_STATE,
+                excel_sync_state="Pendiente",
+                excel_sync_attempts=0,
+            )
+
+        self.backend.patch_control(record.item_id, updates)
+        seeded = replace(
+            record,
+            gantt_etag=file_state.etag or record.gantt_etag,
+            gantt_modified_at=file_state.modified_at
+            or record.gantt_modified_at,
+        )
+        if normalized(metadata.status) == normalized(IN_PROGRESS_STATE):
+            return self.sync_excel_status(seeded, metadata)
+        return seeded
 
     def version(self, record: ControlRecord) -> ControlRecord:
         if not record.version_requested:
@@ -550,12 +735,12 @@ class AutomationService:
             )
             return record
 
-        if normalized(record.state) != normalized(REVIEW_STATE):
+        if not is_deliver_status(record.state):
             self.backend.patch_control(
                 record.item_id,
                 {
                     "UltimoErrorVersionado": (
-                        "SolicitarVersionado requiere EstadoGantt = En revisión inicial."
+                        "SolicitarVersionado requiere EstadoGantt = Entregar."
                     ),
                     "VersionadoIntentos": record.version_attempts + 1,
                 },
@@ -574,6 +759,10 @@ class AutomationService:
             )
             return record
 
+        cycle_minutes = elapsed_minutes(record.progress_started_at, self.now)
+        accumulated_minutes = (
+            record.progress_minutes_accumulated + cycle_minutes
+        )
         updates = {
             "SolicitarVersionado": False,
             "VersionActual": artifact.version,
@@ -581,7 +770,16 @@ class AutomationService:
             "GanttVersionIdentifier": artifact.identifier,
             "FechaUltimoVersionado": iso_utc(self.now),
             "FechaAprobacion": iso_utc(self.now),
-            "EstadoGantt": "Aprobado / Versionado",
+            "EstadoGantt": CURRENT_STATE,
+            "StatusExcelDeseado": CURRENT_STATE,
+            "EstadoSyncExcel": "Pendiente",
+            "IntentosSyncExcel": 0,
+            "ProximoIntentoSyncExcel": None,
+            "UltimoErrorSyncExcel": "",
+            "MinutosEnProgresoActual": 0,
+            "MinutosEnProgresoAcumulados": accumulated_minutes,
+            "FechaInicioEnProgreso": None,
+            "GanttWorkingETag": artifact.source_etag,
             "UltimoErrorVersionado": "",
             "MotivoUltimoVersionado": " | ".join(artifact.reasons),
         }
@@ -597,7 +795,13 @@ class AutomationService:
             version_link=artifact.web_url,
             version_identifier=artifact.identifier,
             versioned_at=self.now,
-            state="Aprobado / Versionado",
+            state=CURRENT_STATE,
+            progress_started_at=None,
+            progress_minutes_current=0,
+            progress_minutes_accumulated=accumulated_minutes,
+            desired_excel_status=CURRENT_STATE,
+            excel_sync_state="Pendiente",
+            gantt_etag=artifact.source_etag or record.gantt_etag,
         )
 
     def assign(self, record: ControlRecord) -> ControlRecord:
@@ -738,25 +942,55 @@ class AutomationService:
 
         assigned = record.assignment_date or self.now
         deadline = record.deadline or (assigned + timedelta(days=9))
-        target_state = record.state if normalized(record.state) in ACTIVE_TRACKING_STATES else "Asignado"
+        target_state = (
+            record.state
+            if normalized(record.state) in ACTIVE_TRACKING_STATES
+            else IN_PROGRESS_STATE
+        )
+        progress_started = record.progress_started_at or self.now
         self.backend.patch_control(
             record.item_id,
             {
                 "EstadoGantt": target_state,
                 "FechaAsignacion": iso_utc(assigned),
                 "FechaLimite": iso_utc(deadline),
+                "FechaInicioEnProgreso": iso_utc(progress_started),
+                "MinutosEnProgresoActual": elapsed_minutes(
+                    progress_started,
+                    self.now,
+                ),
                 "UltimoTrackingRun": iso_utc(self.now),
                 "UltimoErrorTracking": "",
             },
         )
-        record = replace(record, state=target_state, assignment_date=assigned, deadline=deadline)
+        record = replace(
+            record,
+            state=target_state,
+            assignment_date=assigned,
+            deadline=deadline,
+            progress_started_at=progress_started,
+            progress_minutes_current=elapsed_minutes(
+                progress_started,
+                self.now,
+            ),
+        )
         if not record.assignment_email_sent and not assignment_queued:
             self.backend.queue_notification(record, assignment_notification(record, assigned, deadline))
         return record
 
     def track(self, record: ControlRecord) -> ControlRecord:
         kind = due_tracking_kind(record, self.now)
-        self.backend.patch_control(record.item_id, {"UltimoTrackingRun": iso_utc(self.now)})
+        progress_minutes = elapsed_minutes(
+            record.progress_started_at,
+            self.now,
+        )
+        self.backend.patch_control(
+            record.item_id,
+            {
+                "UltimoTrackingRun": iso_utc(self.now),
+                "MinutosEnProgresoActual": progress_minutes,
+            },
+        )
         if not kind:
             return record
         if self.backend.notification_exists(record.item_id, kind):
@@ -782,6 +1016,7 @@ class SharePointBackend:
         self.queue_list = resolve_list(token, self.site_id, QUEUE_LIST_NAME)
         if ensure_schema:
             self._ensure_columns(self.control_list, CONTROL_COLUMNS)
+            self._ensure_gantt_state_choices()
         self.notification_list = self._resolve_or_create_notification_list(ensure_schema)
         self.control_fields = build_field_map(list_columns(token, self.site_id, self.control_list["id"]))
         self.queue_fields = build_field_map(list_columns(token, self.site_id, self.queue_list["id"]))
@@ -811,6 +1046,65 @@ class SharePointBackend:
                     "Conceder Sites.Manage.All o crearlas manualmente."
                 )
                 break
+
+    def _ensure_gantt_state_choices(self) -> None:
+        columns = list_columns(
+            self.token,
+            self.site_id,
+            self.control_list["id"],
+        )
+        target = next(
+            (
+                column
+                for column in columns
+                if normalized(column.get("name")) in {
+                    "estadogantt",
+                    "estadogannt",
+                }
+            ),
+            None,
+        )
+        if not target or not target.get("choice"):
+            return
+        choice = dict(target["choice"])
+        existing = list(choice.get("choices") or [])
+        required = [
+            "Pendiente de asignación",
+            IN_PROGRESS_STATE,
+            DELIVER_STATE,
+            CURRENT_STATE,
+            "Vencido",
+            "Requiere revisión manual",
+        ]
+        merged = existing + [
+            value
+            for value in required
+            if normalized(value)
+            not in {normalized(item) for item in existing}
+        ]
+        if merged == existing:
+            return
+        choice["choices"] = merged
+        try:
+            graph_patch(
+                self.token,
+                (
+                    f"{GRAPH_BASE}/sites/{self.site_id}/lists/"
+                    f"{self.control_list['id']}/columns/{target['id']}"
+                ),
+                {"choice": choice},
+            )
+            print(
+                "Updated Control_Gantt_Asignaciones.EstadoGantt choices: "
+                + ", ".join(required)
+            )
+        except RuntimeError as exc:
+            print(
+                "WARNING: no se pudieron agregar Actual/En Progreso/Entregar "
+                "a EstadoGantt. Actualice manualmente la columna Choice. "
+                f"Detalle: {sanitize_error(exc)}",
+                file=sys.stderr,
+            )
 
     def _resolve_or_create_notification_list(self, ensure_schema: bool) -> dict[str, Any]:
         created = False
@@ -921,6 +1215,33 @@ class SharePointBackend:
                     ),
                     versioned_at=parse_datetime(get("FechaUltimoVersionado")),
                     version_attempts=parse_int(get("VersionadoIntentos")),
+                    progress_started_at=parse_datetime(
+                        get("FechaInicioEnProgreso")
+                    ),
+                    progress_minutes_current=parse_int(
+                        get("MinutosEnProgresoActual")
+                    ),
+                    progress_minutes_accumulated=parse_int(
+                        get("MinutosEnProgresoAcumulados")
+                    ),
+                    delivery_requested_at=parse_datetime(
+                        get("FechaEntregaSolicitada")
+                    ),
+                    gantt_etag=str(get("GanttWorkingETag") or ""),
+                    automation_etag=str(
+                        get("UltimoETagAutomatizacion") or ""
+                    ),
+                    gantt_modified_at=parse_datetime(
+                        get("FechaUltimaModificacionGantt")
+                    ),
+                    desired_excel_status=str(
+                        get("StatusExcelDeseado") or ""
+                    ),
+                    excel_sync_state=str(get("EstadoSyncExcel") or ""),
+                    excel_sync_attempts=parse_int(get("IntentosSyncExcel")),
+                    next_excel_sync_at=parse_datetime(
+                        get("ProximoIntentoSyncExcel")
+                    ),
                 )
             )
         return records
@@ -1012,6 +1333,35 @@ class SharePointBackend:
             raise RuntimeError("No se pudo leer la hoja Datos: " + " | ".join(errors[:2]))
         return combined
 
+    def load_gantt_file_state(
+        self,
+        record: ControlRecord,
+    ) -> GanttFileState:
+        item = self.resolve_drive_item(
+            record.gantt_link,
+            record.gantt_identifier,
+        )
+        if contains_forbidden_path(
+            item.get("webUrl"),
+            record.gantt_link,
+        ):
+            raise RuntimeError("Ruta rechazada: Proyectos Terminados.")
+        metadata = extract_workbook_metadata(
+            self._download_drive_item(item)
+        )
+        modified_by = item.get("lastModifiedBy") or {}
+        modified_user = modified_by.get("user") or {}
+        return GanttFileState(
+            metadata=metadata,
+            etag=str(item.get("eTag") or ""),
+            modified_at=parse_datetime(item.get("lastModifiedDateTime")),
+            modified_by_email=str(
+                modified_user.get("email")
+                or modified_user.get("userPrincipalName")
+                or ""
+            ),
+        )
+
     def grant_edit_access(self, record: ControlRecord, email: str) -> None:
         item = self.resolve_drive_item(record.gantt_link, record.gantt_identifier)
         if contains_forbidden_path(item.get("webUrl"), record.gantt_link):
@@ -1067,6 +1417,10 @@ class SharePointBackend:
             baseline_content = self._download_drive_item(baseline_item)
 
         decision = decide_version(working_content, baseline_content)
+        version_content = workbook_with_status(
+            working_content,
+            CURRENT_STATE,
+        )
         version_name = f"{project_id}_gantt_{decision.version}.xlsx"
         version_path = f"{version_folder}/{version_name}"
         created = not path_exists(self.token, self.site_id, version_path)
@@ -1077,7 +1431,7 @@ class SharePointBackend:
                 f"{GRAPH_BASE}/sites/{self.site_id}/drive/root:/"
                 f"{encoded_drive_path(version_path)}:/content"
             ),
-            working_content,
+            version_content,
         )
         return VersionArtifact(
             identifier=str(target.get("id") or ""),
@@ -1086,6 +1440,7 @@ class SharePointBackend:
             created=created,
             version=decision.version,
             reasons=decision.reasons,
+            source_etag=str(source.get("eTag") or ""),
         )
 
     def _load_notification_keys(self) -> set[tuple[str, str]]:
@@ -1259,7 +1614,7 @@ class SharePointBackend:
                         "Notas": (
                             f"StatusExcel={metadata.status or 'sin campo definido'}; "
                             "versionado automático solicitado si el estado es "
-                            "En revisión inicial."
+                            "Entregar."
                         ),
                     },
                 )
@@ -1336,10 +1691,10 @@ def run_system2(
     for record in records:
         if force_version_recheck:
             metadata = backend.load_metadata(record, prefer_gantt=True)
-            if normalized(metadata.status) != normalized(REVIEW_STATE):
+            if not is_deliver_status(metadata.status):
                 raise RuntimeError(
                     "La reevaluación forzada requiere que el Gantt tenga "
-                    "Estado general = En revisión inicial."
+                    "Estado general = Entregar."
                 )
             print(
                 "Forced version recheck: "
@@ -1348,20 +1703,21 @@ def run_system2(
             record = service.sync_excel_status(record, metadata)
         if (
             not record.version_requested
-            and normalized(record.state) in ACTIVE_TRACKING_STATES
             and (record.gantt_link or record.gantt_identifier)
         ):
             try:
-                metadata = backend.load_metadata(record, prefer_gantt=True)
-                if normalized(metadata.status) == normalized(REVIEW_STATE):
-                    record = service.sync_excel_status(record, metadata)
+                file_state = backend.load_gantt_file_state(record)
+                record = service.observe_gantt_file(
+                    record,
+                    file_state,
+                )
             except Exception as exc:
                 print(
-                    "WARNING: no se pudo sondear StatusExcel para "
+                    "WARNING: no se pudo sondear el estado del Gantt para "
                     f"control={record.item_id}: {sanitize_error(exc)}",
                     file=sys.stderr,
                 )
-        automatic_version = normalized(record.state) == normalized(REVIEW_STATE)
+        automatic_version = is_deliver_status(record.state)
         if record.version_requested or automatic_version:
             candidate = record
             if automatic_version and not record.version_requested:
@@ -1373,7 +1729,7 @@ def run_system2(
             updated = service.version(candidate)
             if (
                 normalized(updated.current_version) in {"v1.0", "v2.0"}
-                and normalized(updated.state) == "aprobado / versionado"
+                and normalized(updated.state) == normalized(CURRENT_STATE)
             ):
                 versioned += 1
             else:
@@ -1381,7 +1737,7 @@ def run_system2(
             continue
         if (
             normalized(record.state) in CLOSED_STATES
-            or normalized(record.state) == normalized(REVIEW_STATE)
+            or is_deliver_status(record.state)
             or normalized(record.state) == "requiere revision manual"
         ):
             continue
@@ -1430,7 +1786,7 @@ def main() -> int:
         action="store_true",
         help=(
             "Reevalúa explícitamente un control ya versionado. Requiere "
-            "--control-item-id y Estado general = En revisión inicial."
+            "--control-item-id y Estado general = Entregar."
         ),
     )
     parser.add_argument("--skip-system1", action="store_true")

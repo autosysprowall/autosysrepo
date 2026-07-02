@@ -405,6 +405,7 @@ def upsert_control_assignment(
     notes: str,
     budget_identifier: str = "",
     gantt_identifier: str = "",
+    gantt_etag: str = "",
 ) -> str:
     columns = list_columns(token, site_id, control_list["id"])
     field_map = build_field_map(columns)
@@ -426,6 +427,10 @@ def upsert_control_assignment(
         (("PresupuestoIdentifier",), budget_identifier),
         (("GanttWorkingIdentifier",), gantt_identifier),
         (("SolicitarVersionado",), False),
+        (("StatusExcel",), "En Progreso"),
+        (("StatusExcelDeseado",), "En Progreso"),
+        (("EstadoSyncExcel",), "Sincronizado"),
+        (("GanttWorkingETag",), gantt_etag),
     ]
     if not existing:
         assignments.extend(
@@ -612,6 +617,7 @@ def process_queue_item(
                     notes="Creado automaticamente por GitHub Actions Sistema 1.",
                     budget_identifier=str(budget_upload.get("id") or source_item.get("id") or ""),
                     gantt_identifier=str(gantt_upload.get("id") or ""),
+                    gantt_etag=str(gantt_upload.get("eTag") or ""),
                 )
                 control_note = f" Control_Gantt_Asignaciones item={control_id}."
             except Exception as exc:

@@ -59,6 +59,7 @@ El esquema esperado esta documentado en [specs/sharepoint_lists_expected_schema.
 | `PA_S1_GanttEnRevision` | Automated cloud flow | Registra fecha de envio a revision inicial y dias usados. |
 | `PA_S2_EnviarNotificacionesGantt` | Automated cloud flow | Envia items pendientes de la cola de notificaciones y confirma flags. |
 | `PA_S2_GanttWorkingModificado_A_Cola` | Automated cloud flow | Registra modificaciones del Gantt para lectura por Python. |
+| `PA_S2_SincronizarEstadoGanttExcel` | Automated cloud flow | Sincroniza `Gantt!B6` mediante Office Scripts sin reemplazar el workbook completo. |
 
 Documentacion nodo por nodo:
 
@@ -67,6 +68,7 @@ Documentacion nodo por nodo:
 - [flows/PA_S1_AdvertenciasGantt.md](flows/PA_S1_AdvertenciasGantt.md)
 - [flows/PA_S1_GanttEnRevision.md](flows/PA_S1_GanttEnRevision.md)
 - [Definicion completa de los flujos de Sistema 2](../docs/power_automate_tracking_flows.md)
+- [Sincronizacion segura de Gantt!B6](flows/PA_S2_SincronizarEstadoGanttExcel.md)
 
 Los tres flujos S1 de correo/tracking quedan como referencia historica y no
 deben activarse junto con Sistema 2, porque duplicarian correos o estados.

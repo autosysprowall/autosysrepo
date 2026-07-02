@@ -7,7 +7,7 @@ El versionado usa la misma fila del proyecto en
 
 1. El ingeniero termina el cronograma en el Gantt WORKING.
 2. Cambia el selector visible `Gantt!B6`, rotulado
-   `Estado general del Gantt`, a `En revisión inicial`.
+   `Estado general del Gantt`, a `Entregar`.
 3. El dispatcher lee directamente el Excel en cada ejecución.
 4. Si existe un evento `gantt_working_modificado`, también lo procesa como vía
    rápida, pero el evento no es obligatorio.
@@ -65,7 +65,10 @@ El WORKING no se mueve ni se renombra. `Proyectos Terminados` está rechazado.
 - `GanttVersionIdentifier`;
 - `FechaUltimoVersionado`;
 - `FechaAprobacion`;
-- `EstadoGantt = Aprobado / Versionado`;
+- `EstadoGantt = Actual`;
+- `StatusExcelDeseado = Actual`;
+- `EstadoSyncExcel = Pendiente`, para que Power Automate actualice `B6`;
+- cierre y acumulación del tiempo que permaneció `En Progreso`;
 - `MotivoUltimoVersionado`, si esa columna opcional existe;
 - `UltimoErrorVersionado` vacío.
 
@@ -75,6 +78,18 @@ Ante un fallo, el proyecto no se aprueba, el flag técnico permanece activo,
 Para reevaluar explícitamente un control ya versionado después de corregir una
 regla, la ejecución manual admite `force_version_recheck=true`. Esta opción
 requiere `control_item_id` y que `Gantt!B6` permanezca en
-`En revisión inicial`; nunca se usa en ejecuciones automáticas.
+`Entregar`; nunca se usa en ejecuciones automáticas.
+
+## Estados visibles
+
+- `En Progreso`: el Gantt está siendo trabajado y su contador permanece
+  activo.
+- `Entregar`: solicita validación y versionado. Si el proceso falla, permanece
+  en este estado para reintentar.
+- `Actual`: el WORKING coincide con la versión vigente.
+
+La lista de SharePoint es la fuente de verdad. Power Automate sincroniza
+`Gantt!B6` mediante el Office Script `SetGanttStatus`; un bloqueo temporal del
+Excel no invalida el versionado.
 
 No existe todavía historial con `v1.1`, `v1.2`, `v2.1` u otros niveles.

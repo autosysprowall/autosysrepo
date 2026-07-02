@@ -590,18 +590,27 @@ class GanttWorkbookTests(unittest.TestCase):
                     .casefold()
                     == "estadogantt"
                 ]
-                self.assertEqual(["En progreso"], status_values)
+                self.assertEqual(["En Progreso"], status_values)
                 self.assertEqual("00C00000", wb["Presupuesto"]["A1"].fill.fgColor.rgb)
                 self.assertEqual("=SUM(1,2)", wb["Presupuesto"]["L2"].value)
 
                 ws = wb["Gantt"]
                 self.assertEqual("Estado general del Gantt", ws["A6"].value)
-                self.assertEqual("En progreso", ws["B6"].value)
+                self.assertEqual("En Progreso", ws["B6"].value)
                 self.assertTrue(
                     any(
                         "B6" in str(validation.sqref)
                         for validation in ws.data_validations.dataValidation
                     )
+                )
+                status_validation = next(
+                    validation
+                    for validation in ws.data_validations.dataValidation
+                    if "B6" in str(validation.sqref)
+                )
+                self.assertEqual(
+                    '"Actual,En Progreso,Entregar"',
+                    status_validation.formula1,
                 )
                 headers = [
                     ws.cell(HEADER_ROW, column).value

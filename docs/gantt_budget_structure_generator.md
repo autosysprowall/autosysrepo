@@ -62,9 +62,9 @@ ingeniero completa las fechas y las reglas condicionales pintan la barra en el
 calendario.
 
 El estado general del archivo se controla por separado en `Gantt!B6`, junto a
-la etiqueta `Estado general del Gantt`. El selector admite `En progreso` y
-`En revisión inicial`; esta última opción activa la lectura de cierre y el
-versionado en el dispatcher.
+la etiqueta `Estado general del Gantt`. El selector admite `Actual`,
+`En Progreso` y `Entregar`; esta última opción activa la lectura de cierre y
+el versionado en el dispatcher. Un Gantt nuevo comienza en `En Progreso`.
 
 ## Detección y normalización
 

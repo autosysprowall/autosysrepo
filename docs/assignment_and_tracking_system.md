@@ -4,7 +4,7 @@
 
 Sistema 2 comienza después de que Sistema 1 genera el Gantt WORKING. Comparte
 solamente ese archivo con el ingeniero, encola el correo de asignación, controla
-los días 3, 6 y 9, sincroniza el estado `En revisión inicial` y crea
+los días 3, 6 y 9, sincroniza el estado `Entregar` y crea
 automáticamente la versión correspondiente.
 
 No mueve ni renombra el WORKING, no modifica Gantts cerrados y rechaza cualquier
@@ -47,6 +47,10 @@ dispatcher crea, si faltan:
 | `VencimientoNotificado` / `FechaVencimientoNotificado` | Confirmación del escalamiento. |
 | `UltimoTrackingRun` / `TrackingIntentos` / `UltimoErrorTracking` | Diagnóstico. |
 | `StatusExcel` / `FechaLecturaStatusExcel` | Último status leído del libro. |
+| `FechaInicioEnProgreso` / `MinutosEnProgresoActual` | Contador del ciclo abierto. |
+| `MinutosEnProgresoAcumulados` | Tiempo total de ciclos entregados. |
+| `StatusExcelDeseado` / `EstadoSyncExcel` | Contrato con Power Automate para `B6`. |
+| `GanttWorkingETag` / `UltimoETagAutomatizacion` | Detección de cambios sin bucles. |
 
 La lista `Cola_Notificaciones_Gantt` separa la decisión de negocio del envío
 Outlook. Sus columnas están detalladas en
@@ -86,11 +90,12 @@ Después del permiso:
 
 - `FechaAsignacion` se conserva si ya existía, o se establece al momento actual;
 - `FechaLimite = FechaAsignacion + 9 días`, si estaba vacía;
-- el estado pasa a `Asignado`, salvo que ya estuviera `En progreso`;
+- el estado pasa a `En Progreso`;
+- comienza `FechaInicioEnProgreso` si estaba vacía;
 - se crea una única notificación `AsignacionGantt`.
 
 El correo instruye trabajar en el mismo archivo y marcar
-`En revisión inicial` al terminar.
+`Entregar` al terminar.
 
 ## Tracking
 
@@ -139,20 +144,28 @@ Los Gantts nuevos muestran el estado general en la hoja `Gantt`:
 
 ```text
 Gantt!A6 | Estado general del Gantt
-Gantt!B6 | En progreso
+Gantt!B6 | En Progreso
 ```
 
-`Gantt!B6` tiene una lista con `En progreso` y `En revisión inicial`. El
+`Gantt!B6` tiene una lista con `Actual`, `En Progreso` y `Entregar`. El
 dispatcher prioriza esta celda visible y conserva `EstadoGantt` en `Datos`
 únicamente como compatibilidad para libros anteriores.
 
 Power Automate registra un evento `gantt_working_modificado`; Python descarga el
-libro y lee el estado. Si encuentra `En revisión inicial`, actualiza:
+libro y lee el estado. Si encuentra `Entregar`, actualiza:
 
-- `EstadoGantt = En revisión inicial`;
+- `EstadoGantt = Entregar`;
 - `FechaEnvioRevision`, solo si estaba vacía;
 - `DiasParaCompletar`;
 - `StatusExcel` y `FechaLecturaStatusExcel`.
+
+`FechaInicioEnProgreso` no se reinicia con cada guardado. El dispatcher
+actualiza `MinutosEnProgresoActual`; después de versionar suma el ciclo a
+`MinutosEnProgresoAcumulados` y cambia el estado de la lista a `Actual`.
+
+La sincronización visual de `B6` se realiza con
+`PA_S2_SincronizarEstadoGanttExcel`. Si Excel está ocupado, la lista conserva
+el estado correcto y el cambio de celda queda pendiente para otro ciclo.
 
 Los Gantts antiguos que solo tengan `EstadoGantt` en `Datos` continúan siendo
 compatibles.

@@ -76,16 +76,32 @@ Funcion: seguimiento humano del Gantt WORKING generado por Python.
 | `UltimoErrorTracking` | Multiple lines of text | No | Ultimo error accionable. |
 | `StatusExcel` | Single line of text | No | Ultimo status leido de Datos. |
 | `FechaLecturaStatusExcel` | Date and time | No | Momento de lectura del status. |
+| `StatusExcelDeseado` | Single line of text | No | Estado que Power Automate debe reflejar en `Gantt!B6`. |
+| `EstadoSyncExcel` | Single line of text | No | `Sincronizado`, `Pendiente`, `Procesando`, `Omitido` o `Error`. |
+| `IntentosSyncExcel` | Number | No | Reintentos de escritura de `B6`. |
+| `ProximoIntentoSyncExcel` | Date and time | No | Próximo reintento permitido. |
+| `UltimoErrorSyncExcel` | Multiple lines of text | No | Error del conector Excel/Office Script. |
+| `FechaUltimoSyncExcel` | Date and time | No | Última sincronización exitosa. |
+| `FechaInicioEnProgreso` | Date and time | No | Inicio del ciclo actual de trabajo. |
+| `MinutosEnProgresoActual` | Number | No | Duración del ciclo abierto. |
+| `MinutosEnProgresoAcumulados` | Number | No | Duración acumulada de ciclos cerrados. |
+| `FechaEntregaSolicitada` | Date and time | No | Momento en que se leyó `Entregar`. |
+| `GanttWorkingETag` | Single line of text | No | Último contenido conocido por el dispatcher. |
+| `UltimoETagAutomatizacion` | Single line of text | No | eTag producido por Power Automate; evita bucles. |
+| `FechaUltimaModificacionGantt` | Date and time | No | Última modificación observada en SharePoint. |
 
 ### Valores permitidos de EstadoGantt
 
 - `Pendiente de asignación`
-- `Asignado`
-- `En progreso`
-- `En revisión inicial`
-- `Aprobado / Versionado`
+- `En Progreso`
+- `Entregar`
+- `Actual`
 - `Vencido`
 - `Requiere revisión manual`
+
+Durante la transición se siguen leyendo `Asignado`, `En progreso`,
+`En revisión inicial` y `Aprobado / Versionado` para compatibilidad, pero no se
+escriben en registros nuevos.
 
 ## Cola_Notificaciones_Gantt
 

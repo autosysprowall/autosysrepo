@@ -20,7 +20,7 @@ on:
         required: false
         default: ""
       force_version_recheck:
-        description: "Reevaluar versionado del control indicado (requiere B6 En revisión inicial)"
+        description: "Reevaluar versionado del control indicado (requiere B6 Entregar)"
         required: false
         type: boolean
         default: false

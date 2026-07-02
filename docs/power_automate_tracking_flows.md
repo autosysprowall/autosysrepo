@@ -10,6 +10,9 @@ Estado al 30 de junio de 2026:
 - `PA_S2_EnviarNotificacionesGantt` está creado, activo y validado en modo de
   prueba.
 - `PA_S2_GanttWorkingModificado_A_Cola` todavía está pendiente de crear.
+- `PA_S2_SincronizarEstadoGanttExcel` está definido en
+  `power_automate/flows/PA_S2_SincronizarEstadoGanttExcel.md` y usa el Office
+  Script `power_automate/office_scripts/SetGanttStatus.ts`.
 - El Switch que confirma flags en `Control_Gantt_Asignaciones` y el Scope de
   fallo todavía están pendientes antes de activar destinatarios reales.
 - `PA_S1_DevolverPresupuestoInvalido` está creado y guardado sin errores, pero
