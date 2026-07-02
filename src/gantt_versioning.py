@@ -52,6 +52,22 @@ def _find_gantt_header(ws) -> tuple[int, dict[str, int]]:
 
 
 def _contractual_end(workbook) -> date | None:
+    if "AutosysVersionBaseline" in workbook.sheetnames:
+        baseline_ws = workbook["AutosysVersionBaseline"]
+        for row in baseline_ws.iter_rows():
+            for cell in row:
+                label = _normalized(cell.value)
+                if "fecha final contractual" not in label:
+                    continue
+                for offset in range(1, 5):
+                    parsed = _as_date(
+                        baseline_ws.cell(
+                            cell.row,
+                            cell.column + offset,
+                        ).value
+                    )
+                    if parsed:
+                        return parsed
     if "Datos" not in workbook.sheetnames:
         return None
     ws = workbook["Datos"]
@@ -59,7 +75,13 @@ def _contractual_end(workbook) -> date | None:
         for cell in row:
             label = _normalized(cell.value)
             if "fecha" not in label or not any(
-                term in label for term in ("final", "fin contractual")
+                term in label
+                for term in (
+                    "fecha final",
+                    "fecha de fin",
+                    "fecha fin",
+                    "fin contractual",
+                )
             ):
                 continue
             for offset in range(1, 5):

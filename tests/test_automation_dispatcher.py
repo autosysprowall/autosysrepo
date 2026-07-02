@@ -5,7 +5,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 
 from src.automation_dispatcher import (
     AutomationService,
@@ -20,7 +20,7 @@ from src.automation_dispatcher import (
     run_system2,
     sent_notification_updates,
 )
-from src.gantt_versioning import decide_version
+from src.gantt_versioning import decide_version, snapshot_gantt
 
 
 NOW = datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc)
@@ -511,6 +511,22 @@ class VersioningTests(unittest.TestCase):
         self.assertEqual("v2.0", decision.version)
         self.assertTrue(decision.schedule_overrun)
 
+    def test_contractual_end_prefers_embedded_generation_baseline(self) -> None:
+        content = self.gantt_bytes(
+            1000,
+            datetime(2027, 1, 2),
+            baseline_cost=1000,
+        )
+        workbook = load_workbook(io.BytesIO(content))
+        workbook["Datos"]["B1"] = datetime(2030, 1, 1)
+        stream = io.BytesIO()
+        workbook.save(stream)
+        workbook.close()
+
+        snapshot = snapshot_gantt(stream.getvalue())
+        self.assertEqual(datetime(2026, 12, 31).date(), snapshot.contractual_end)
+        self.assertTrue(snapshot.schedule_overrun)
+
     def test_version_requires_review_state(self) -> None:
         backend = FakeBackend()
         current = record(
@@ -764,6 +780,39 @@ class DispatcherTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "No existe el item 99"):
             run_system2(IsolatedBackend(), NOW, 20, "99")
+
+    def test_force_version_recheck_reopens_only_requested_review_workbook(self) -> None:
+        class RecheckBackend(FakeBackend):
+            def __init__(self) -> None:
+                super().__init__(
+                    WorkbookMetadata(status="En revisión inicial")
+                )
+
+            def control_records(self) -> list[ControlRecord]:
+                return [
+                    record(
+                        item_id="11",
+                        state="Aprobado / Versionado",
+                        current_version="v1.0",
+                    )
+                ]
+
+        backend = RecheckBackend()
+        summary = run_system2(
+            backend,
+            NOW,
+            20,
+            "11",
+            force_version_recheck=True,
+        )
+        self.assertEqual(1, summary["versioned"])
+        self.assertTrue(
+            any(
+                patch.get("EstadoGantt") == "En revisión inicial"
+                and patch.get("SolicitarVersionado") is True
+                for _, patch in backend.patches
+            )
+        )
 
     def test_test_delivery_mode_redirects_and_removes_real_cc(self) -> None:
         notification = Notification(

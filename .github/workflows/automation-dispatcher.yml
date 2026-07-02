@@ -19,6 +19,11 @@ on:
         description: "ID opcional para limitar Sistema 2 a un solo proyecto"
         required: false
         default: ""
+      force_version_recheck:
+        description: "Reevaluar versionado del control indicado (requiere B6 En revisión inicial)"
+        required: false
+        type: boolean
+        default: false
       skip_system1:
         description: "Omitir Sistema 1 durante una prueba aislada de tracking"
         required: false
@@ -186,5 +191,8 @@ jobs:
           fi
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.skip_system2 }}" = "true" ]; then
             args+=(--skip-system2)
+          fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force_version_recheck }}" = "true" ]; then
+            args+=(--force-version-recheck)
           fi
           python src/automation_dispatcher.py "${args[@]}"

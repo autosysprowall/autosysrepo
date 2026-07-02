@@ -1308,8 +1308,13 @@ def run_system2(
     now: datetime,
     max_status_items: int,
     control_item_id: str = "",
+    force_version_recheck: bool = False,
 ) -> dict[str, int]:
     isolated_run = control_item_id.strip()
+    if force_version_recheck and not isolated_run:
+        raise RuntimeError(
+            "--force-version-recheck requiere --control-item-id."
+        )
     status_events = 0 if isolated_run else backend.process_status_events(now, max_status_items)
     service = AutomationService(backend, now)
     assigned = 0
@@ -1329,6 +1334,18 @@ def run_system2(
             )
         print(f"System 2 isolated test: control item {isolated_run}")
     for record in records:
+        if force_version_recheck:
+            metadata = backend.load_metadata(record, prefer_gantt=True)
+            if normalized(metadata.status) != normalized(REVIEW_STATE):
+                raise RuntimeError(
+                    "La reevaluación forzada requiere que el Gantt tenga "
+                    "Estado general = En revisión inicial."
+                )
+            print(
+                "Forced version recheck: "
+                f"control={record.item_id} status={metadata.status}"
+            )
+            record = service.sync_excel_status(record, metadata)
         if (
             not record.version_requested
             and normalized(record.state) in ACTIVE_TRACKING_STATES
@@ -1408,6 +1425,14 @@ def main() -> int:
         default="",
         help="Limita Sistema 2 a un item de Control_Gantt_Asignaciones.",
     )
+    parser.add_argument(
+        "--force-version-recheck",
+        action="store_true",
+        help=(
+            "Reevalúa explícitamente un control ya versionado. Requiere "
+            "--control-item-id y Estado general = En revisión inicial."
+        ),
+    )
     parser.add_argument("--skip-system1", action="store_true")
     parser.add_argument(
         "--skip-system2",
@@ -1442,6 +1467,7 @@ def main() -> int:
         datetime.now(timezone.utc),
         max(1, args.max_status_items),
         args.control_item_id.strip(),
+        args.force_version_recheck,
     )
     if system1_error:
         summary["system1_errors"] = 1

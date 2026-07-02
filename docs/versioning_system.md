@@ -35,6 +35,10 @@ Cada Gantt nuevo contiene la hoja oculta `AutosysVersionBaseline`, creada con
 los totales del presupuesto original. En el primer versionado se compara contra
 esa línea base; posteriormente se compara contra `v1.0`.
 
+La `Fecha Final contractual` también se conserva en esa hoja oculta y es la
+fuente prioritaria para detectar actividades dentro de la extensión roja. La
+hoja `Datos` se usa solamente como respaldo.
+
 Un Gantt antiguo que no tenga esta hoja y tampoco tenga una `v1.0` previa se
 rechaza con una instrucción de regenerar el WORKING. No se asume una versión
 sin comparación financiera verificable.
@@ -67,5 +71,10 @@ El WORKING no se mueve ni se renombra. `Proyectos Terminados` está rechazado.
 
 Ante un fallo, el proyecto no se aprueba, el flag técnico permanece activo,
 `VersionadoIntentos` aumenta y la causa queda en `UltimoErrorVersionado`.
+
+Para reevaluar explícitamente un control ya versionado después de corregir una
+regla, la ejecución manual admite `force_version_recheck=true`. Esta opción
+requiere `control_item_id` y que `Gantt!B6` permanezca en
+`En revisión inicial`; nunca se usa en ejecuciones automáticas.
 
 No existe todavía historial con `v1.1`, `v1.2`, `v2.1` u otros niveles.
