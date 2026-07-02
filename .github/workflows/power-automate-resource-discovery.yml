@@ -1,0 +1,91 @@
+name: Power Automate Resource Discovery
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Microsoft authentication dependency
+        run: python -m pip install --disable-pip-version-check msal==1.33.0 requests==2.32.4
+
+      - name: Discover non-secret resource identifiers
+        env:
+          MS_TENANT_ID: ${{ secrets.MS_TENANT_ID }}
+          MS_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
+          MS_CLIENT_SECRET: ${{ secrets.MS_CLIENT_SECRET || secrets.MS_GRAPH_CLIENT_SECRET }}
+        run: |
+          python - <<'PY'
+          import os
+          import requests
+          from msal import ConfidentialClientApplication
+
+          app = ConfidentialClientApplication(
+              os.environ["MS_CLIENT_ID"],
+              authority=f"https://login.microsoftonline.com/{os.environ['MS_TENANT_ID']}",
+              client_credential=os.environ["MS_CLIENT_SECRET"],
+          )
+          result = app.acquire_token_for_client(
+              scopes=["https://graph.microsoft.com/.default"]
+          )
+          token = result.get("access_token")
+          if not token:
+              raise RuntimeError(
+                  f"No se pudo autenticar Graph: {result.get('error_description', 'sin detalle')}"
+              )
+          headers = {"Authorization": f"Bearer {token}"}
+
+          site = requests.get(
+              "https://graph.microsoft.com/v1.0/sites/"
+              "sciprowall.sharepoint.com:/sites/PROYECTOSPROWALL"
+              "?$select=id,webUrl",
+              headers=headers,
+              timeout=60,
+          )
+          site.raise_for_status()
+          site_id = site.json()["id"]
+
+          drives = requests.get(
+              f"https://graph.microsoft.com/v1.0/sites/{site_id}/drives"
+              "?$select=id,name,webUrl",
+              headers=headers,
+              timeout=60,
+          )
+          drives.raise_for_status()
+          for drive in drives.json().get("value", []):
+              print(
+                  "SHAREPOINT_DRIVE "
+                  f"name={drive.get('name')} id={drive.get('id')}"
+              )
+
+          scripts = requests.get(
+              "https://graph.microsoft.com/v1.0/users/"
+              "auto.sys@prowallpanama.com/drive/root/search(q='SetGanttStatus')"
+              "?$select=id,name,parentReference,webUrl",
+              headers=headers,
+              timeout=60,
+          )
+          scripts.raise_for_status()
+          matches = [
+              item
+              for item in scripts.json().get("value", [])
+              if item.get("name", "").casefold().startswith("setganttstatus")
+          ]
+          if not matches:
+              raise RuntimeError("No se encontró el Office Script SetGanttStatus.")
+          for item in matches:
+              parent = item.get("parentReference") or {}
+              print(
+                  "OFFICE_SCRIPT "
+                  f"name={item.get('name')} id={item.get('id')} "
+                  f"driveId={parent.get('driveId')}"
+              )
+          PY
