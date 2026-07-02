@@ -12,6 +12,7 @@ import tempfile
 import unicodedata
 from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta, timezone
+from html import escape
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -342,15 +343,16 @@ def assignment_notification(record: ControlRecord, assigned: datetime, deadline:
     project = record.project_name or record.project_id
     subject = f"Asignación Cronograma Proyecto {project}".strip()
     body = (
-        "El departamento de comercial ha asignado un nuevo presupuesto. "
+        "<p>El departamento de comercial ha asignado un nuevo presupuesto. "
         "Se requiere la planificación de las actividades listadas en la "
-        "plantilla adjunta.\n\n"
-        f"Proyecto: {project}\n"
-        f"Link de acceso de editor al diagrama:\n{record.gantt_link}"
+        "plantilla adjunta.</p>"
+        f"<p><strong>Proyecto:</strong> {escape(project)}</p>"
+        f"<p><a href=\"{escape(record.gantt_link, quote=True)}\">"
+        "Abrir Gantt con permiso de edición</a></p>"
     )
     guide = engineer_guide_line()
     if guide:
-        body += f"\n\n{guide}"
+        body += f"<p>{escape(guide)}</p>"
     return Notification(
         "AsignacionGantt",
         record.engineer_email,
@@ -371,34 +373,38 @@ def tracking_notification(record: ControlRecord, kind: str, days: int) -> Notifi
     if kind == "Advertencia1":
         subject = f"Advertencia Cronograma Proyecto {project}"
         body = (
-            f"Han pasado {days} días desde la asignación del cronograma del "
-            f"proyecto {project}. Por favor agilizar el proceso para permitir "
-            "la mejor planificación posible.\n\n"
-            f"Link de acceso de editor al diagrama:\n{record.gantt_link}"
+            f"<p>Han pasado {days} días desde la asignación del cronograma del "
+            f"proyecto {escape(project)}. Por favor agilizar el proceso para "
+            "permitir la mejor planificación posible.</p>"
+            f"<p><a href=\"{escape(record.gantt_link, quote=True)}\">"
+            "Abrir Gantt con permiso de edición</a></p>"
         )
         guide = engineer_guide_line()
         if guide:
-            body += f"\n\n{guide}"
+            body += f"<p>{escape(guide)}</p>"
         return Notification(kind, record.engineer_email, warning_cc, subject, body)
     if kind == "Advertencia2":
         subject = f"Advertencia Cronograma Proyecto {project}"
         body = (
-            f"Han pasado {days} días desde la asignación del cronograma del "
-            f"proyecto {project}. Por favor agilizar el proceso para permitir "
-            "la mejor planificación posible.\n\n"
-            f"Link de acceso de editor al diagrama:\n{record.gantt_link}"
+            f"<p>Han pasado {days} días desde la asignación del cronograma del "
+            f"proyecto {escape(project)}. Por favor agilizar el proceso para "
+            "permitir la mejor planificación posible.</p>"
+            f"<p><a href=\"{escape(record.gantt_link, quote=True)}\">"
+            "Abrir Gantt con permiso de edición</a></p>"
         )
         guide = engineer_guide_line()
         if guide:
-            body += f"\n\n{guide}"
+            body += f"<p>{escape(guide)}</p>"
         return Notification(kind, record.engineer_email, warning_cc, subject, body)
     recipients = record.supervisors_email or record.engineer_email
     cc = record.engineer_email if record.supervisors_email else ""
     subject = f"Gantt vencido - {base}"
     body = (
-        f"El Gantt de {base} llegó al día {days} sin pasar a revisión inicial.\n\n"
-        f"Archivo de trabajo:\n{record.gantt_link}\n\n"
-        "El registro fue marcado como Vencido."
+        f"<p>El Gantt de {escape(base)} llegó al día {days} sin pasar a "
+        "revisión inicial.</p>"
+        f"<p><a href=\"{escape(record.gantt_link, quote=True)}\">"
+        "Abrir Gantt con permiso de edición</a></p>"
+        "<p>El registro fue marcado como Vencido.</p>"
     )
     return Notification("Vencimiento", recipients, cc, subject, body)
 
@@ -441,10 +447,10 @@ def apply_notification_delivery_mode(notification: Notification) -> Notification
             "NOTIFICATION_TEST_RECIPIENT debe contener un único correo válido en modo test."
         )
     audit = (
-        "\n\n--- MODO PRUEBA ---\n"
-        f"Destinatario real previsto: {notification.to or '(vacío)'}\n"
-        f"CC real previsto: {notification.cc or '(vacío)'}\n"
-        "Este correo fue redirigido y no se envió a destinatarios reales."
+        "<hr><p><strong>MODO PRUEBA</strong><br>"
+        f"Destinatario real previsto: {escape(notification.to or '(vacío)')}<br>"
+        f"CC real previsto: {escape(notification.cc or '(vacío)')}<br>"
+        "Este correo fue redirigido y no se envió a destinatarios reales.</p>"
     )
     return replace(
         notification,

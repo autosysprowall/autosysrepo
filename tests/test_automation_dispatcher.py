@@ -131,6 +131,11 @@ class AssignmentTests(unittest.TestCase):
         )
         self.assertIn("El departamento de comercial", notification.body)
         self.assertIn(record().gantt_link, notification.body)
+        self.assertIn(
+            f'<a href="{record().gantt_link}">',
+            notification.body,
+        )
+        self.assertIn("Abrir Gantt con permiso de edición</a>", notification.body)
         self.assertNotIn("Guía PDF Ingenieros + Planta", notification.body)
         merged = {key: value for _, patch in backend.patches for key, value in patch.items()}
         self.assertEqual("Asignado", merged["EstadoGantt"])
