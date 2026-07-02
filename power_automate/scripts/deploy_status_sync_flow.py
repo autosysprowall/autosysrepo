@@ -157,8 +157,19 @@ def build_definition() -> dict[str, Any]:
                     "ScriptParameters/allowReplaceEntregar": (
                         "@and("
                         "equals(triggerBody()?['StatusExcelDeseado'],'Actual'),"
-                        "equals(triggerBody()?['EstadoGantt'],'Actual'),"
-                        "not(empty(triggerBody()?['VersionActual']))"
+                        "equals("
+                        "coalesce("
+                        "triggerBody()?['EstadoGantt']?['Value'],"
+                        "triggerBody()?['EstadoGannt']?['Value'],"
+                        "triggerBody()?['EstadoGantt'],"
+                        "triggerBody()?['EstadoGannt']"
+                        "),"
+                        "'Actual'"
+                        "),"
+                        "not(empty(coalesce("
+                        "triggerBody()?['VersionActual'],"
+                        "triggerBody()?['VersionadoActual']"
+                        ")))"
                         ")"
                     ),
                 },

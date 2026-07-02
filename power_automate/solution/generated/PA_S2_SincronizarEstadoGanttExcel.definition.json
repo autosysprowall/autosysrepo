@@ -82,7 +82,7 @@
           "scriptId": "ms-officescript%3A%2F%2Fonedrive_business_itemlink%2F01DOEBQSOGBUUS4J3DDNEZEYWXPWEC4VXH",
           "ScriptParameters/desiredStatus": "@triggerBody()?['StatusExcelDeseado']",
           "ScriptParameters/expectedCurrentStatus": "@triggerBody()?['StatusExcel']",
-          "ScriptParameters/allowReplaceEntregar": "@and(equals(triggerBody()?['StatusExcelDeseado'],'Actual'),equals(triggerBody()?['EstadoGantt'],'Actual'),not(empty(triggerBody()?['VersionActual'])))"
+          "ScriptParameters/allowReplaceEntregar": "@and(equals(triggerBody()?['StatusExcelDeseado'],'Actual'),equals(coalesce(triggerBody()?['EstadoGantt']?['Value'],triggerBody()?['EstadoGannt']?['Value'],triggerBody()?['EstadoGantt'],triggerBody()?['EstadoGannt']),'Actual'),not(empty(coalesce(triggerBody()?['VersionActual'],triggerBody()?['VersionadoActual']))))"
         },
         "host": {
           "apiId": "/providers/Microsoft.PowerApps/apis/shared_excelonlinebusiness",
