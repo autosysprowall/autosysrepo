@@ -52,6 +52,10 @@ class FakeBackend:
         self.metadata_error: Exception | None = None
         self.version_error: Exception | None = None
         self.versions: list[str] = []
+        self.resolved_gantt_link = (
+            "https://contoso.sharepoint.com/Proyectos/Proyectos%20Activos/"
+            "gantt_working.xlsx"
+        )
 
     def patch_control(self, item_id: str, updates: dict) -> None:
         self.patches.append((item_id, updates))
@@ -65,6 +69,9 @@ class FakeBackend:
         if self.permission_error:
             raise self.permission_error
         self.grants.append((record.item_id, email))
+
+    def resolve_gantt_editor_link(self, record: ControlRecord) -> str:
+        return self.resolved_gantt_link
 
     def notification_exists(self, item_id: str, kind: str) -> bool:
         return (item_id, kind.casefold()) in self.notification_keys
@@ -128,6 +135,18 @@ class AssignmentTests(unittest.TestCase):
         merged = {key: value for _, patch in backend.patches for key, value in patch.items()}
         self.assertEqual("Asignado", merged["EstadoGantt"])
         self.assertTrue(merged["PermisoGanttOtorgado"])
+
+    def test_identifier_only_assignment_resolves_editor_link_for_email(self) -> None:
+        backend = FakeBackend()
+        result = AutomationService(backend, NOW).assign(
+            record(gantt_link="", gantt_identifier="drive-item-id")
+        )
+
+        self.assertEqual(backend.resolved_gantt_link, result.gantt_link)
+        self.assertIn(
+            backend.resolved_gantt_link,
+            backend.notifications[0][1].body,
+        )
 
     def test_missing_email_does_not_share_or_queue(self) -> None:
         backend = FakeBackend(WorkbookMetadata())

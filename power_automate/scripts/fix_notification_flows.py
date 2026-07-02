@@ -140,7 +140,10 @@ def corrected_return_definition(
         attachments.append(
             {
                 "Name": BUDGET_GUIDE_NAME,
-                "ContentBytes": budget_guide_base64,
+                "ContentBytes": {
+                    "$content-type": "application/pdf",
+                    "$content": budget_guide_base64,
+                },
             }
         )
     parameters["emailMessage/Attachments"] = attachments
@@ -161,7 +164,10 @@ def corrected_assignment_definition(
         [
             {
                 "Name": ENGINEER_GUIDE_NAME,
-                "ContentBytes": engineer_guide_base64,
+                "ContentBytes": {
+                    "$content-type": "application/pdf",
+                    "$content": engineer_guide_base64,
+                },
             }
         ]
         if engineer_guide_base64

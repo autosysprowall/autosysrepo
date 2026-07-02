@@ -329,6 +329,8 @@ class AutomationBackend(Protocol):
 
     def grant_edit_access(self, record: ControlRecord, email: str) -> None: ...
 
+    def resolve_gantt_editor_link(self, record: ControlRecord) -> str: ...
+
     def notification_exists(self, item_id: str, kind: str) -> bool: ...
 
     def queue_notification(self, record: ControlRecord, notification: Notification) -> None: ...
@@ -574,6 +576,30 @@ class AutomationService:
         state = normalized(record.state)
         if state in CLOSED_STATES or state == normalized(REVIEW_STATE):
             return record
+        if not record.gantt_link and record.gantt_identifier:
+            resolver = getattr(self.backend, "resolve_gantt_editor_link", None)
+            if callable(resolver):
+                try:
+                    resolved_link = str(resolver(record) or "").strip()
+                except Exception as exc:
+                    resolved_link = ""
+                    self.backend.patch_control(
+                        record.item_id,
+                        {
+                            "UltimoErrorTracking": (
+                                "No se pudo resolver el enlace compartido del Gantt: "
+                                f"{sanitize_error(exc)}"
+                            )[:500],
+                            "TrackingIntentos": record.tracking_attempts + 1,
+                            "UltimoTrackingRun": iso_utc(self.now),
+                        },
+                    )
+                if resolved_link:
+                    record = replace(record, gantt_link=resolved_link)
+                    print(
+                        "Resolved Gantt editor link from identifier: "
+                        f"control={record.item_id}"
+                    )
         if contains_forbidden_path(record.gantt_link, record.budget_link):
             self.backend.patch_control(
                 record.item_id,
@@ -897,6 +923,15 @@ class SharePointBackend:
         if link:
             return graph_get(self.token, f"{GRAPH_BASE}/shares/{self._share_id(link)}/driveItem")
         raise RuntimeError("No hay link o identificador para resolver el archivo.")
+
+    def resolve_gantt_editor_link(self, record: ControlRecord) -> str:
+        item = self.resolve_drive_item(record.gantt_link, record.gantt_identifier)
+        link = str(item.get("webUrl") or "").strip()
+        if not link:
+            raise RuntimeError("Microsoft Graph no devolvió webUrl para el Gantt.")
+        if contains_forbidden_path(link):
+            raise RuntimeError("Ruta rechazada: Proyectos Terminados.")
+        return link
 
     def _download_drive_item(self, item: dict[str, Any]) -> bytes:
         drive_id = str((item.get("parentReference") or {}).get("driveId") or "")

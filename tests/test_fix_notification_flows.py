@@ -30,7 +30,10 @@ def test_return_flow_uses_expression_for_subject_and_error() -> None:
     assert "Presupuesto No Válido Proyecto" in parameters["emailMessage/Subject"]
     assert "UltimoError" in parameters["emailMessage/Body"]
     assert "CreatedByEmail" in parameters["emailMessage/Body"]
-    assert parameters["emailMessage/Attachments"][-1]["ContentBytes"] == "budget-guide"
+    assert parameters["emailMessage/Attachments"][-1]["ContentBytes"] == {
+        "$content-type": "application/pdf",
+        "$content": "budget-guide",
+    }
 
 
 def test_assignment_flow_uses_notification_queue_fields() -> None:
@@ -56,6 +59,9 @@ def test_assignment_flow_uses_notification_queue_fields() -> None:
     assert parameters["emailMessage/Attachments"] == [
         {
             "Name": "Guia_AutoSys_Ingenieros_Residentes_Planta.pdf",
-            "ContentBytes": "engineer-guide",
+            "ContentBytes": {
+                "$content-type": "application/pdf",
+                "$content": "engineer-guide",
+            },
         }
     ]
