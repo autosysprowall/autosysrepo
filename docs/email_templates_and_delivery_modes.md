@@ -10,7 +10,7 @@ esas cuentas sin permisos **Send As**.
 
 ## Modos
 
-### `test`
+### `test` (solo para validaciones aisladas)
 
 - `NOTIFICATION_DELIVERY_MODE=test`;
 - `NOTIFICATION_TEST_RECIPIENT=auto.sys@prowallpanama.com`;
@@ -26,7 +26,7 @@ proyecto como asignado. En `live` no se envía nada hasta completar
 `IngenieroEmail`. Antes de pasar a `live`, eliminar las vistas previas de prueba
 para que no bloqueen el envío real por idempotencia.
 
-### `live`
+### `live` (deployment)
 
 - `NOTIFICATION_DELIVERY_MODE=live`;
 - asignación y advertencias van al ingeniero;
@@ -34,8 +34,8 @@ para que no bloqueen el envío real por idempotencia.
 - Power Automate debe usar los campos dinámicos `To`, `Cc`, `Subject` y `Body`
   del item, sin un destinatario fijo adicional.
 
-Cambiar el modo solo en la variable de repositorio
-`NOTIFICATION_DELIVERY_MODE`. No cambiar el YAML.
+El deployment usa `NOTIFICATION_DELIVERY_MODE=live`. Para una validación
+aislada puede volver temporalmente a `test`, sin cambiar el YAML.
 
 ## Asignación
 
@@ -70,20 +70,13 @@ Este correo lo envía `PA_S1_DevolverPresupuestoInvalido`:
 
 - To live: `CreatedByEmail`;
 - CC live: `jaime.madrid@prowallpanama.com`;
-- To test: `auto.sys@prowallpanama.com`;
-- CC test: vacío;
-- asunto live: `Presupuesto No Válido Proyecto {NombreProyecto}`;
-- asunto test: `[PRUEBA] Presupuesto No Válido Proyecto {NombreProyecto}`;
+- To: `CreatedByEmail`;
+- CC: `jaime.madrid@prowallpanama.com`;
+- asunto: `Presupuesto No Válido Proyecto {NombreProyecto}`;
 - adjunta el presupuesto original;
 - adjunta `Guia_AutoSys_Comercial_Presupuesto.pdf`;
 - incluye `FileLink` y `UltimoError`;
-- en prueba muestra `CreatedByEmail` y el CC real previsto dentro del cuerpo,
-  pero envía exclusivamente a autosys.
-
-En Power Automate deben existir dos variables:
-
-- `DeliveryMode`, con `test` o `live`;
-- `TestRecipient`, con `auto.sys@prowallpanama.com`.
+- usa el texto final sin marcas de borrador o prueba.
 
 Cuando exista, la URL de la guía puede guardarse en una variable de entorno de
 la solución llamada `BUDGET_GUIDE_URL`. Mientras esté vacía, el flujo no debe
@@ -92,21 +85,13 @@ mostrar texto de guía ni un vínculo de reemplazo.
 Expresión para **To**:
 
 ```text
-if(
-  equals(variables('DeliveryMode'),'test'),
-  variables('TestRecipient'),
-  triggerBody()?['CreatedByEmail']
-)
+triggerBody()?['CreatedByEmail']
 ```
 
 Expresión para **Cc**:
 
 ```text
-if(
-  equals(variables('DeliveryMode'),'test'),
-  '',
-  'jaime.madrid@prowallpanama.com'
-)
+'jaime.madrid@prowallpanama.com'
 ```
 
 Antes de activar `live`, validar que `CreatedByEmail` contenga un correo. Si

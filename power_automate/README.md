@@ -84,19 +84,9 @@ Contenido dinamico y expresiones:
 
 Power Automate solo registra eventos en `Cola_Automatizacion_Proyectos`.
 
-GitHub Actions corre por horario cada hora y Python lee los items `Pendiente`,
-ademas de revisar asignaciones y vencimientos.
-
-Ejemplo:
-
-```yaml
-on:
-  schedule:
-    - cron: "17 * * * *"
-  workflow_dispatch:
-```
-
-El schedule puede retrasarse algunos minutos por infraestructura de GitHub. Es aceptable.
+GitHub Actions conserva `workflow_dispatch`. El cron interno está desactivado;
+el dispatcher externo lo invoca cada 15 minutos usando la rama
+`feature/power-automate-sistema1-flows`.
 
 ## Conectores
 

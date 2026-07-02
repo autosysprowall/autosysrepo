@@ -51,7 +51,7 @@ Para probarlo manualmente:
 También puede ejecutarse con GitHub CLI:
 
 ```bash
-gh workflow run automation-dispatcher.yml --ref feature/gantt-assignment-tracking -f top=50 -f max_items=5
+gh workflow run automation-dispatcher.yml --ref feature/power-automate-sistema1-flows -f top=50 -f max_items=5
 ```
 
 Para reprocesar manualmente un item específico que ya esté marcado como

@@ -25,11 +25,12 @@ def test_return_flow_uses_expression_for_subject_and_error() -> None:
     parameters = corrected["actions"]["Send_an_email_(V2)"]["inputs"]["parameters"]
 
     assert parameters["emailMessage/Subject"].startswith("@concat(")
-    assert parameters["emailMessage/To"] == "auto.sys@prowallpanama.com"
-    assert parameters["emailMessage/Cc"] == ""
+    assert parameters["emailMessage/To"] == "@triggerBody()?['CreatedByEmail']"
+    assert parameters["emailMessage/Cc"] == "jaime.madrid@prowallpanama.com"
     assert "Presupuesto No Válido Proyecto" in parameters["emailMessage/Subject"]
+    assert "[PRUEBA]" not in parameters["emailMessage/Subject"]
     assert "UltimoError" in parameters["emailMessage/Body"]
-    assert "CreatedByEmail" in parameters["emailMessage/Body"]
+    assert "MODO PRUEBA" not in parameters["emailMessage/Body"]
     assert parameters["emailMessage/Attachments"][-1]["ContentBytes"] == {
         "$content-type": "application/pdf",
         "$content": "budget-guide",

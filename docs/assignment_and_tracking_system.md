@@ -128,22 +128,19 @@ La idempotencia combina:
 Una notificación existente en `Pendiente`, `Enviado` o `Error` impide crear un
 duplicado. Los errores se corrigen y reintentan sobre el mismo item.
 
-### Modo de entrega de pruebas
+### Modos de entrega
 
 Mientras `NOTIFICATION_DELIVERY_MODE=test`, todas las notificaciones se
 redireccionan a `NOTIFICATION_TEST_RECIPIENT` y el asunto recibe el prefijo
 `[PRUEBA]`. El cuerpo conserva los destinatarios reales previstos solamente como
-auditoría. La configuración inicial usa `auto.sys@prowallpanama.com`.
-
-No cambiar `NOTIFICATION_DELIVERY_MODE` a `live` hasta la aprobación del
-supervisor.
+auditoría. El deployment utiliza `NOTIFICATION_DELIVERY_MODE=live`, por lo que
+los destinatarios de `Datos` y los CC configurados reciben los mensajes.
 
 Las plantillas finales, destinatarios y variables de guía están documentados
 en `docs/email_templates_and_delivery_modes.md`.
 
-Además de la redirección en Python, el flujo activo de Power Automate mantiene
-su campo `To` fijado a `auto.sys@prowallpanama.com`. Esta segunda barrera se
-mantendrá durante la validación con el supervisor.
+El flujo activo de Power Automate usa los campos dinámicos `To` y `Cc` creados
+por Python; no conserva un destinatario fijo.
 
 ## Status del Excel
 

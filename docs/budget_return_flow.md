@@ -48,9 +48,8 @@ que Power Automate pueda obtener el archivo original.
 Nombre: `PA_S1_DevolverPresupuestoInvalido`.
 
 El flujo fue creado el 30 de junio de 2026 en el ambiente `Prowall (default)`,
-con ID `56a4ec6a-5fd0-4c74-b9cb-7c65b0375928`. Quedó apagado deliberadamente.
-Debe permanecer en modo `test` hasta validar el texto final. La guía PDF se
-omite mientras no exista.
+con ID `56a4ec6a-5fd0-4c74-b9cb-7c65b0375928`. Su definición productiva usa
+destinatario dinámico, texto final y la guía PDF comercial actualizada.
 
 La conexión Outlook usada es `auto.sys@prowallpanama.com`; el remitente efectivo
 será esa cuenta mientras no se configure `From (Send as)`.
@@ -70,10 +69,8 @@ será esa cuenta mientras no se configure `From (Send as)`.
 4. **Get file content** usando `FileIdentifier`. El flujo debe fallar antes de
    enviar si no puede obtener el contenido.
 5. **Send an email (V2)**:
-   - To live: `CreatedByEmail`;
-   - CC live: `jaime.madrid@prowallpanama.com`;
-   - To test: `auto.sys@prowallpanama.com`;
-   - CC test: vacío;
+   - To: `CreatedByEmail`;
+   - CC: `jaime.madrid@prowallpanama.com`;
    - Subject: `Presupuesto No Válido Proyecto <NombreProyecto>`;
    - Body: texto aprobado, `UltimoError`, nombre, enlace y guía de presupuesto;
    - Attachment Name: `FileName`;

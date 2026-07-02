@@ -4,21 +4,19 @@ Estos flujos usan únicamente SharePoint y Office 365 Outlook, conectores
 estándar. No usan HTTP premium, no llaman GitHub y no procesan
 `Proyectos Terminados`.
 
-Estado al 30 de junio de 2026:
+Estado verificado el 2 de julio de 2026:
 
 - `Cola_Notificaciones_Gantt` y sus columnas ya existen en SharePoint.
-- `PA_S2_EnviarNotificacionesGantt` está creado, activo y validado en modo de
-  prueba.
-- `PA_S2_GanttWorkingModificado_A_Cola` todavía está pendiente de crear.
-- `PA_S2_SincronizarEstadoGanttExcel` está definido en
+- `PA_S2_EnviarNotificacionesGantt` está activo, usa destinatarios dinámicos,
+  confirma los cuatro tipos de notificación y adjunta la guía actualizada.
+- `PA_S2_GanttWorkingModificado_A_Cola` está desplegado y activo.
+- `PA_S2_SincronizarEstadoGanttExcel` está desplegado y activo; usa
   `power_automate/flows/PA_S2_SincronizarEstadoGanttExcel.md` y usa el Office
   Script `power_automate/office_scripts/SetGanttStatus.ts`.
-- El Switch que confirma flags en `Control_Gantt_Asignaciones` y el Scope de
-  fallo todavía están pendientes antes de activar destinatarios reales.
-- `PA_S1_DevolverPresupuestoInvalido` está creado y guardado sin errores, pero
-  permanece apagado. Faltan los destinatarios aprobados y el texto final de
-  Contabilidad/Comercial. Su contrato, adjunto y orden seguro de eliminación
-  están en `docs/budget_return_flow.md`.
+- `PA_S1_RegistrarPresupuestoAprobado` y
+  `PA_S1_DevolverPresupuestoInvalido` están activos.
+- El flujo de devolución usa `CreatedByEmail`, el CC aprobado, el texto final y
+  adjunta tanto el presupuesto como la guía comercial actualizada.
 
 ## Lista `Cola_Notificaciones_Gantt`
 
@@ -62,11 +60,11 @@ Este flujo consume los mensajes ya redactados por Python para:
 - vencimiento.
 
 La cola entrega `TipoNotificacion`, `Subject`, `Body`, `To` y `Cc`. Power
-Automate no debe volver a redactar ni reemplazar esos campos. El modo `test`
-se aplica antes de crear el item, por lo que el flujo puede usar siempre los
-valores dinámicos. No activar `live` hasta validar las cuatro ramas.
+Automate no vuelve a redactar ni reemplazar esos campos. El deployment usa
+`NOTIFICATION_DELIVERY_MODE=live`, por lo que los destinatarios extraídos se
+conservan.
 
-### Configuración activa de prueba
+### Configuración activa
 
 El flujo activo usa el trigger **When an item is created or modified** sobre
 `Cola_Notificaciones_Gantt`, concurrencia `1` y esta condición de trigger:
@@ -75,16 +73,10 @@ El flujo activo usa el trigger **When an item is created or modified** sobre
 @equals(triggerBody()?['EstadoNotificacion'],'Pendiente')
 ```
 
-Durante la validación, Python escribe `To = auto.sys@prowallpanama.com`, elimina
-el CC real y agrega `[PRUEBA]` al asunto. **Send an email (V2)** debe usar el
-campo dinámico `To`; no necesita un destinatario fijo. Después
+Python escribe los destinatarios finales en `To` y `Cc`. **Send an email (V2)**
+usa esos campos dinámicos, sin destinatario fijo. Después
 del envío exitoso, **Update item** preserva los campos, establece
 `EstadoNotificacion = Enviado` y `FechaEnvio = utcNow()`.
-
-La prueba controlada del 30 de junio terminó `Succeeded`: envío en 0.9 segundos
-y actualización del item en 0.7 segundos. No se usaron destinatarios reales.
-No sustituir el destinatario fijo por `To` hasta obtener aprobación del
-supervisor y terminar el Switch y el manejo de fallos descritos abajo.
 
 1. Crear un **Automated cloud flow**.
 2. Trigger: SharePoint, **When an item is created or modified**.
