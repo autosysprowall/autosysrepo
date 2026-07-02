@@ -1,0 +1,299 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "$connections": {
+      "defaultValue": {},
+      "type": "Object"
+    },
+    "$authentication": {
+      "defaultValue": {},
+      "type": "SecureObject"
+    }
+  },
+  "triggers": {
+    "When_a_file_is_created_or_modified": {
+      "recurrence": {
+        "frequency": "Minute",
+        "interval": 1
+      },
+      "evaluatedRecurrence": {
+        "frequency": "Minute",
+        "interval": 1
+      },
+      "splitOn": "@triggerOutputs()?['body/value']",
+      "type": "OpenApiConnection",
+      "inputs": {
+        "parameters": {
+          "dataset": "https://sciprowall.sharepoint.com/sites/PROYECTOSPROWALL",
+          "table": "8d884441-daa4-45b5-beb4-f09abdd1433a",
+          "folderPath": "/Documentos compartidos/Proyectos/Proyectos Activos"
+        },
+        "host": {
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+          "connectionName": "shared_sharepointonline",
+          "operationId": "GetOnUpdatedFileItems"
+        },
+        "authentication": "@parameters('$authentication')"
+      },
+      "conditions": [
+        {
+          "expression": "@and(contains(toLower(triggerBody()?['{Path}']),'/proyectos/proyectos activos/'),contains(toLower(triggerBody()?['{Path}']),'/gantts/working/'),not(contains(toLower(triggerBody()?['{Path}']),'/proyectos terminados/')),not(startsWith(triggerBody()?['{FilenameWithExtension}'],'~$')),endsWith(toLower(triggerBody()?['{FilenameWithExtension}']),'_gantt_working.xlsx'))"
+        }
+      ],
+      "runtimeConfiguration": {
+        "concurrency": {
+          "runs": 1
+        }
+      }
+    }
+  },
+  "actions": {
+    "Get_control_items": {
+      "runAfter": {},
+      "type": "OpenApiConnection",
+      "inputs": {
+        "parameters": {
+          "dataset": "https://sciprowall.sharepoint.com/sites/PROYECTOSPROWALL",
+          "table": "afe5544b-3f60-40e4-81a0-01e86920f5f2",
+          "$top": 500
+        },
+        "host": {
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+          "connectionName": "shared_sharepointonline",
+          "operationId": "GetItems"
+        },
+        "authentication": "@parameters('$authentication')"
+      }
+    },
+    "Filter_control_items": {
+      "runAfter": {
+        "Get_control_items": [
+          "Succeeded"
+        ]
+      },
+      "type": "Query",
+      "inputs": {
+        "from": "@body('Get_control_items')?['value']",
+        "where": "@equals(item()?['ProyectoID'],first(split(triggerBody()?['{FilenameWithExtension}'],'_gantt_')))"
+      }
+    },
+    "If_one_control_item": {
+      "runAfter": {
+        "Filter_control_items": [
+          "Succeeded"
+        ]
+      },
+      "type": "If",
+      "expression": "@equals(length(body('Filter_control_items')),1)",
+      "actions": {
+        "Read_Gantt_status": {
+          "runAfter": {},
+          "type": "OpenApiConnection",
+          "inputs": {
+            "parameters": {
+              "source": "https://sciprowall.sharepoint.com/sites/PROYECTOSPROWALL",
+              "drive": "b!gT--atFwrEiNN1Dm9ygu7gAK2MbJi0RKuVaPM52nyYJBRIiNpNq1Rb608Jq90UM6",
+              "file": "@first(body('Filter_control_items'))?['GanttWorkingIdentifier']",
+              "scriptId": "ms-officescript%3A%2F%2Fonedrive_business_itemlink%2F01DOEBQSLKZQFHHXCTNJFY6QSKQ4VYIDDD",
+              "ScriptParameters": null
+            },
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_excelonlinebusiness",
+              "connectionName": "shared_excelonlinebusiness",
+              "operationId": "RunScriptProd"
+            },
+            "authentication": "@parameters('$authentication')"
+          }
+        },
+        "If_automation_change": {
+          "runAfter": {
+            "Read_Gantt_status": [
+              "Succeeded"
+            ]
+          },
+          "type": "If",
+          "expression": "@or(equals(toLower(coalesce(first(body('Filter_control_items'))?['EstadoSyncExcel'],'')),'procesando'),and(equals(first(body('Filter_control_items'))?['UltimoETagAutomatizacion'],'__POWER_AUTOMATE_PENDING_ETAG__'),not(empty(first(body('Filter_control_items'))?['FechaUltimoSyncExcel'])),lessOrEquals(ticks(triggerBody()?['Modified']),ticks(addMinutes(first(body('Filter_control_items'))?['FechaUltimoSyncExcel'],2)))))",
+          "actions": {
+            "Confirm_automation_change": {
+              "runAfter": {},
+              "type": "OpenApiConnection",
+              "inputs": {
+                "parameters": {
+                  "dataset": "https://sciprowall.sharepoint.com/sites/PROYECTOSPROWALL",
+                  "table": "afe5544b-3f60-40e4-81a0-01e86920f5f2",
+                  "id": "@first(body('Filter_control_items'))?['ID']",
+                  "item/Title": "@first(body('Filter_control_items'))?['Title']",
+                  "item/StatusExcel": "@outputs('Read_Gantt_status')?['body/result/status']",
+                  "item/EstadoSyncExcel": "Sincronizado",
+                  "item/UltimoTrackingRun": "@utcNow()"
+                },
+                "host": {
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                  "connectionName": "shared_sharepointonline",
+                  "operationId": "PatchItem"
+                },
+                "authentication": "@parameters('$authentication')"
+              }
+            }
+          },
+          "else": {
+            "actions": {
+              "If_start_progress": {
+                "runAfter": {},
+                "type": "If",
+                "expression": "@and(equals(outputs('Read_Gantt_status')?['body/result/valid'],true),or(equals(outputs('Read_Gantt_status')?['body/result/status'],'Actual'),equals(outputs('Read_Gantt_status')?['body/result/status'],'En Progreso')),equals(coalesce(first(body('Filter_control_items'))?['EstadoGantt']?['Value'],first(body('Filter_control_items'))?['EstadoGannt']?['Value'],first(body('Filter_control_items'))?['EstadoGantt'],first(body('Filter_control_items'))?['EstadoGannt']),'Actual'))",
+                "actions": {
+                  "Mark_in_progress": {
+                    "runAfter": {},
+                    "type": "OpenApiConnection",
+                    "inputs": {
+                      "parameters": {
+                        "dataset": "https://sciprowall.sharepoint.com/sites/PROYECTOSPROWALL",
+                        "table": "afe5544b-3f60-40e4-81a0-01e86920f5f2",
+                        "id": "@first(body('Filter_control_items'))?['ID']",
+                        "item/Title": "@first(body('Filter_control_items'))?['Title']",
+                        "item/EstadoGannt/Value": "En Progreso",
+                        "item/FechaInicioEnProgreso": "@if(empty(first(body('Filter_control_items'))?['FechaInicioEnProgreso']),utcNow(),first(body('Filter_control_items'))?['FechaInicioEnProgreso'])",
+                        "item/MinutosEnProgresoActual": "@coalesce(first(body('Filter_control_items'))?['MinutosEnProgresoActual'],0)",
+                        "item/StatusExcel": "@outputs('Read_Gantt_status')?['body/result/status']",
+                        "item/StatusExcelDeseado": "En Progreso",
+                        "item/EstadoSyncExcel": "Pendiente",
+                        "item/IntentosSyncExcel": 0,
+                        "item/ProximoIntentoSyncExcel": null,
+                        "item/UltimoErrorSyncExcel": "",
+                        "item/UltimoTrackingRun": "@utcNow()"
+                      },
+                      "host": {
+                        "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                        "connectionName": "shared_sharepointonline",
+                        "operationId": "PatchItem"
+                      },
+                      "authentication": "@parameters('$authentication')"
+                    }
+                  }
+                },
+                "else": {
+                  "actions": {}
+                }
+              },
+              "If_delivery": {
+                "runAfter": {
+                  "If_start_progress": [
+                    "Succeeded"
+                  ]
+                },
+                "type": "If",
+                "expression": "@and(equals(outputs('Read_Gantt_status')?['body/result/valid'],true),equals(outputs('Read_Gantt_status')?['body/result/status'],'Entregar'))",
+                "actions": {
+                  "Mark_delivery_requested": {
+                    "runAfter": {},
+                    "type": "OpenApiConnection",
+                    "inputs": {
+                      "parameters": {
+                        "dataset": "https://sciprowall.sharepoint.com/sites/PROYECTOSPROWALL",
+                        "table": "afe5544b-3f60-40e4-81a0-01e86920f5f2",
+                        "id": "@first(body('Filter_control_items'))?['ID']",
+                        "item/Title": "@first(body('Filter_control_items'))?['Title']",
+                        "item/EstadoGannt/Value": "Entregar",
+                        "item/StatusExcel": "Entregar",
+                        "item/FechaEntregaSolicitada": "@if(empty(first(body('Filter_control_items'))?['FechaEntregaSolicitada']),utcNow(),first(body('Filter_control_items'))?['FechaEntregaSolicitada'])",
+                        "item/SolicitarVersionado": true,
+                        "item/UltimoTrackingRun": "@utcNow()"
+                      },
+                      "host": {
+                        "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                        "connectionName": "shared_sharepointonline",
+                        "operationId": "PatchItem"
+                      },
+                      "authentication": "@parameters('$authentication')"
+                    }
+                  },
+                  "Get_pending_delivery_events": {
+                    "runAfter": {
+                      "Mark_delivery_requested": [
+                        "Succeeded"
+                      ]
+                    },
+                    "type": "OpenApiConnection",
+                    "inputs": {
+                      "parameters": {
+                        "dataset": "https://sciprowall.sharepoint.com/sites/PROYECTOSPROWALL",
+                        "table": "91e1c898-b8fb-44a9-8236-a600c6e38340",
+                        "$top": 500
+                      },
+                      "host": {
+                        "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                        "connectionName": "shared_sharepointonline",
+                        "operationId": "GetItems"
+                      },
+                      "authentication": "@parameters('$authentication')"
+                    }
+                  },
+                  "Filter_pending_delivery_events": {
+                    "runAfter": {
+                      "Get_pending_delivery_events": [
+                        "Succeeded"
+                      ]
+                    },
+                    "type": "Query",
+                    "inputs": {
+                      "from": "@body('Get_pending_delivery_events')?['value']",
+                      "where": "@and(equals(item()?['Title'],triggerBody()?['{FilenameWithExtension}']),equals(item()?['EventType'],'gantt_working_modificado'),equals(item()?['Estado'],'Pendiente'))"
+                    }
+                  },
+                  "If_no_pending_delivery_event": {
+                    "runAfter": {
+                      "Filter_pending_delivery_events": [
+                        "Succeeded"
+                      ]
+                    },
+                    "type": "If",
+                    "expression": "@equals(length(body('Filter_pending_delivery_events')),0)",
+                    "actions": {
+                      "Create_delivery_event": {
+                        "runAfter": {},
+                        "type": "OpenApiConnection",
+                        "inputs": {
+                          "parameters": {
+                            "dataset": "https://sciprowall.sharepoint.com/sites/PROYECTOSPROWALL",
+                            "table": "91e1c898-b8fb-44a9-8236-a600c6e38340",
+                            "item/Title": "@triggerBody()?['{FilenameWithExtension}']",
+                            "item/EventType/Value": "gantt_working_modificado",
+                            "item/Estado/Value": "Pendiente",
+                            "item/Filename": "@triggerBody()?['{FilenameWithExtension}']",
+                            "item/FileID": "@triggerBody()?['{Identifier}']",
+                            "item/FolderPath": "@triggerBody()?['{Path}']",
+                            "item/FileLink": "@triggerBody()?['{Link}']",
+                            "item/Intentos": "0",
+                            "item/Notas": "Entrega detectada por Power Automate."
+                          },
+                          "host": {
+                            "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                            "connectionName": "shared_sharepointonline",
+                            "operationId": "PostItem"
+                          },
+                          "authentication": "@parameters('$authentication')"
+                        }
+                      }
+                    },
+                    "else": {
+                      "actions": {}
+                    }
+                  }
+                },
+                "else": {
+                  "actions": {}
+                }
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "actions": {}
+      }
+    }
+  },
+  "outputs": {}
+}

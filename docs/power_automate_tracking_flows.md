@@ -134,19 +134,38 @@ Para reintentar, corregir la causa y cambiar ese mismo item de `Error` a
 
 ## Flujo 2: `PA_S2_GanttWorkingModificado_A_Cola`
 
-1. Crear un **Automated cloud flow**.
-2. Trigger: SharePoint, **When a file is created or modified (properties only)**.
-3. Seleccionar el sitio y la biblioteca de `/Proyectos/`.
-4. Agregar una Condition AND usando ruta y nombre:
+El flujo está desplegado y activo:
+
+- Environment:
+  `Default-ed7d4cfd-f42f-48ee-85ae-2e2be3539cd4`
+- Flow ID: `aef2a007-ee4f-4ac5-8a82-ce94b374de1f`
+- Script de lectura: `GetGanttStatus`
+- Script de despliegue:
+  `power_automate/scripts/deploy_gantt_modified_flow.py`
+
+1. Trigger: SharePoint, **When a file is created or modified (properties only)**.
+2. Seleccionar el sitio y la biblioteca de `/Proyectos/`.
+3. Aplicar una condición AND usando ruta y nombre:
    - la ruta contiene `/Proyectos Activos/`;
-   - la ruta contiene `/gantts/`;
+   - la ruta contiene `/gantts/working/`;
    - la ruta no contiene `/Proyectos Terminados/`;
    - el nombre no comienza con `~$`;
-   - el nombre comienza con `gannt_`;
-   - el nombre termina con `_working.xlsx`.
-5. Rama Sí: SharePoint **Create item** en
-   `Cola_Automatizacion_Proyectos`:
-   - `Title = Gantt WORKING modificado - <File name with extension>`;
+   - el nombre termina con `_gantt_WORKING.xlsx`.
+4. Resolver una única fila de `Control_Gantt_Asignaciones` mediante el
+   `ProyectoID` contenido en el nombre.
+5. Ejecutar `GetGanttStatus` y leer `Gantt!B6`.
+6. Si el cambio fue producido por `SetGanttStatus`, ignorarlo para evitar
+   bucles.
+7. Si el estado es `Actual` o `En Progreso` y la lista estaba en `Actual`:
+   - cambiar `EstadoGantt` a `En Progreso`;
+   - iniciar `FechaInicioEnProgreso` solo si estaba vacía;
+   - solicitar `B6 = En Progreso` mediante `EstadoSyncExcel = Pendiente`.
+8. Si el estado es `Entregar`:
+   - cambiar el control a `Entregar`;
+   - activar `SolicitarVersionado`;
+   - crear, si no existe otro pendiente, un item en
+     `Cola_Automatizacion_Proyectos`:
+   - `Title = <File name with extension>`;
    - `EventType = gantt_working_modificado`;
    - `Estado = Pendiente`;
    - `FileName = File name with extension`;
@@ -155,11 +174,9 @@ Para reintentar, corregir la causa y cambiar ese mismo item de `Error` a
    - `FileLink = Link to item`;
    - `Intentos = 0`;
    - `Notas = Detectado por Power Automate`.
-6. Rama No: terminar sin acciones.
-
-Este flujo registra el evento. No abre Excel, no crea versiones y no mueve el
-Gantt. Los patrones reflejan la estructura real existente del generador; no se
-crea una carpeta `working` adicional.
+Este flujo lee solamente la celda de estado mediante Office Scripts. No
+interpreta costos o fechas, no crea versiones y no mueve el Gantt. La
+validación financiera y cronológica permanece exclusivamente en Python.
 
 ## Evitar duplicados con flujos antiguos
 

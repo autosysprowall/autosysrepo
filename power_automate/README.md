@@ -69,6 +69,9 @@ Documentacion nodo por nodo:
 - [flows/PA_S1_GanttEnRevision.md](flows/PA_S1_GanttEnRevision.md)
 - [Definicion completa de los flujos de Sistema 2](../docs/power_automate_tracking_flows.md)
 - [Sincronizacion segura de Gantt!B6](flows/PA_S2_SincronizarEstadoGanttExcel.md)
+- Office Scripts:
+  `office_scripts/GetGanttStatus.ts` y
+  `office_scripts/SetGanttStatus.ts`.
 
 Los tres flujos S1 de correo/tracking quedan como referencia historica y no
 deben activarse junto con Sistema 2, porque duplicarian correos o estados.
