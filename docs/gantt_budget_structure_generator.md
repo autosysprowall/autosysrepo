@@ -193,23 +193,17 @@ Esto evita columnas vacías en SharePoint/Excel Online y mantiene el vínculo
 
 ### Varios bloques financieros
 
-No se reduce el presupuesto a una única pareja de costos. Se conservan, en su
-orden original, las columnas reconocidas como:
+La extracción reutilizable continúa detectando todos los bloques financieros
+del presupuesto para futuros módulos y la hoja fuente se conserva intacta.
+Sin embargo, la hoja `Gantt` muestra exclusivamente `Costo Unitario` y
+`Costo Total`.
 
-- costo unitario y costo total;
-- precio unitario y precio total;
-- utilidad total;
-- margen.
+No se incorporan al cronograma columnas comerciales auxiliares como `P.U.`,
+`Precio Unitario`, `Precio Total`, `Margen`, `Utilidad` o columnas adicionales
+como `Costo Total (2)`.
 
-Los encabezados combinados ubicados encima de la tabla se copian como grupos en
-la fila superior del Gantt. Por ejemplo:
-
-- `PRESUPUESTO GENERAL (1 CASA)`;
-- `GLOBAL (2 CASAS)`;
-- `ACUMULADO (2 CASAS)`.
-
-Así, columnas repetidas como `Costo Total (2 casas)` permanecen separadas bajo
-su grupo correspondiente.
+Los resúmenes situados antes del encabezado real, por ejemplo `Área total`, no
+se copian encima del encabezado principal del Gantt.
 
 ## Calendario
 

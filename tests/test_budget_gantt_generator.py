@@ -420,30 +420,39 @@ class BudgetExtractionTests(unittest.TestCase):
                     "Vaciado de Piso de Fundación",
                     gantt.cell(DATA_START_ROW, 2).value,
                 )
-                group_labels = {
-                    gantt.cell(HEADER_ROW - 1, column).value
-                    for column in range(1, gantt.max_column + 1)
-                    if isinstance(gantt.cell(HEADER_ROW - 1, column).value, str)
-                }
-                self.assertIn("GLOBAL (2 CASAS)", group_labels)
-                self.assertIn("ACUMULADO (2 CASAS)", group_labels)
                 header_indexes = {
                     gantt.cell(HEADER_ROW, column).value: column
                     for column in range(1, gantt.max_column + 1)
                     if isinstance(gantt.cell(HEADER_ROW, column).value, str)
                 }
-                global_cost_header = next(
-                    header
-                    for header in header_indexes
-                    if "Costo Total (2 casas)" in header
-                    and "GLOBAL (2 CASAS)" in header
+                self.assertEqual(
+                    [
+                        "Ítem",
+                        "Actividad",
+                        "CC",
+                        "Fecha de Inicio",
+                        "Fecha de Fin",
+                        "Estatus",
+                        "Unidad",
+                        "Cantidad",
+                        "Costo Unitario",
+                        "Costo Total",
+                    ],
+                    list(header_indexes),
+                )
+                self.assertFalse(
+                    any(
+                        term in normalize_text(header)
+                        for header in header_indexes
+                        for term in ("precio", "margen", "utilidad")
+                    )
                 )
                 self.assertEqual(
-                    6491.46,
-                    gantt.cell(
-                        DATA_START_ROW,
-                        header_indexes[global_cost_header],
-                    ).value,
+                    1,
+                    sum(
+                        normalize_text(header) == "costo total"
+                        for header in header_indexes
+                    ),
                 )
             finally:
                 generated.close()
@@ -694,6 +703,8 @@ class GanttWorkbookTests(unittest.TestCase):
             wb = Workbook()
             ws = wb.active
             ws.title = "PRESUPUESTO FLEXIO"
+            ws["D1"] = "Área total"
+            ws["E1"] = 4436.5
             ws.append(
                 [
                     "Actividad",
@@ -705,7 +716,7 @@ class GanttWorkbookTests(unittest.TestCase):
                     "COSTO TOTAL",
                 ]
             )
-            ws["J1"] = "PRESUPUESTO GENERAL"
+            ws["J2"] = "PRESUPUESTO GENERAL"
             ws.append(
                 [
                     "Administracion",
@@ -732,21 +743,21 @@ class GanttWorkbookTests(unittest.TestCase):
             for _ in range(5):
                 ws.append([])
             ws.append(["PROYECTO", "Area", 2, 74.36, 148.72, None, None])
-            ws.auto_filter.ref = "A1:A4"
-            ws.row_dimensions[2].height = 23.25
+            ws.auto_filter.ref = "A2:A5"
+            ws.row_dimensions[3].height = 23.25
             gray = PatternFill("solid", fgColor="D0D0D0")
             pink = PatternFill("solid", fgColor="F2CEEF")
-            ws["A2"].fill = gray
-            ws["A2"].font = Font(bold=True)
-            ws["D2"].fill = pink
-            ws["D2"].font = Font(bold=True)
-            ws["E2"].fill = gray
-            ws["E2"].font = Font(bold=True)
+            ws["A3"].fill = gray
+            ws["A3"].font = Font(bold=True)
+            ws["D3"].fill = pink
+            ws["D3"].font = Font(bold=True)
+            ws["E3"].fill = gray
+            ws["E3"].font = Font(bold=True)
             currency_format = (
                 '" "[$B/.-180A]* #,##0.00" ";"-"[$B/.-180A]* #,##0.00'
             )
-            ws["D2"].number_format = currency_format
-            ws["E2"].number_format = currency_format
+            ws["D3"].number_format = currency_format
+            ws["E3"].number_format = currency_format
             add_datos(wb)
             wb.save(source)
             wb.close()
@@ -757,8 +768,25 @@ class GanttWorkbookTests(unittest.TestCase):
                 gantt = generated["Gantt"]
                 headers = {
                     gantt.cell(HEADER_ROW, column).value: column
-                    for column in range(1, 9)
+                    for column in range(1, gantt.max_column + 1)
+                    if isinstance(gantt.cell(HEADER_ROW, column).value, str)
                 }
+                self.assertNotIn("P.U.", headers)
+                self.assertNotIn("COSTO TOTAL (2)", headers)
+                self.assertNotIn("Precio Total", headers)
+                self.assertNotIn("Margen", headers)
+                self.assertNotIn("Utilidad", headers)
+                calendar_column = next(
+                    column
+                    for column in range(1, gantt.max_column + 1)
+                    if isinstance(gantt.cell(HEADER_ROW, column).value, date)
+                )
+                self.assertTrue(
+                    all(
+                        gantt.cell(HEADER_ROW - 1, column).value is None
+                        for column in range(1, calendar_column)
+                    )
+                )
                 self.assertEqual(
                     32.72,
                     gantt.cell(DATA_START_ROW, headers["Costo Unitario"]).value,
@@ -796,11 +824,6 @@ class GanttWorkbookTests(unittest.TestCase):
                     for row in range(DATA_START_ROW, gantt.max_row + 1)
                 ]
                 self.assertNotIn("PROYECTO", activities)
-                calendar_column = next(
-                    column
-                    for column in range(1, gantt.max_column + 1)
-                    if isinstance(gantt.cell(HEADER_ROW, column).value, date)
-                )
                 self.assertEqual(
                     "00D0D0D0",
                     gantt.cell(DATA_START_ROW, calendar_column).fill.fgColor.rgb,

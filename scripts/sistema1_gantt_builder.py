@@ -1141,28 +1141,16 @@ GANTT_FIXED_HEADERS = [
 def additional_cost_columns(
     extraction: BudgetExtractionResult,
 ) -> list[BudgetCostColumn]:
-    primary = {
-        int(column)
-        for field_name in ("costo_unitario", "costo_total")
-        if (column := extraction.column_mapping.get(field_name))
-    }
-    return [
-        column
-        for column in extraction.cost_columns
-        if column.column not in primary
-    ]
+    # Las columnas financieras adicionales permanecen disponibles en la
+    # extracción reutilizable y en la hoja fuente, pero no pertenecen al
+    # cronograma. El Gantt solo expone Costo Unitario y Costo Total.
+    return []
 
 
 def gantt_cost_groups(extraction: BudgetExtractionResult) -> dict[str, str]:
-    groups: dict[str, str] = {}
-    for column in extraction.cost_columns:
-        if column.column == extraction.column_mapping.get("costo_unitario"):
-            groups["Costo Unitario"] = column.group
-        elif column.column == extraction.column_mapping.get("costo_total"):
-            groups["Costo Total"] = column.group
-        else:
-            groups[column.output_header] = column.group
-    return groups
+    # Rótulos situados encima del encabezado real (por ejemplo "Área total")
+    # son auxiliares del presupuesto y no deben aparecer sobre el Gantt.
+    return {}
 
 
 def gantt_headers(
@@ -1177,10 +1165,6 @@ def gantt_headers(
     ]
     if has_item:
         headers.insert(0, "Ítem")
-    headers.extend(
-        column.output_header
-        for column in (extra_cost_columns or [])
-    )
     return headers
 
 
