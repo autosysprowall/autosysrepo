@@ -650,6 +650,15 @@ class GanttWorkbookTests(unittest.TestCase):
                     '"Actual,En Progreso,Entregar"',
                     status_validation.formula1,
                 )
+                activity_status_validation = next(
+                    validation
+                    for validation in ws.data_validations.dataValidation
+                    if f"E{DATA_START_ROW + 1}" in str(validation.sqref)
+                )
+                self.assertEqual(
+                    '"Pendiente,En Progreso,Completada"',
+                    activity_status_validation.formula1,
+                )
                 headers = [
                     ws.cell(HEADER_ROW, column).value
                     for column in range(1, 10)
@@ -677,6 +686,13 @@ class GanttWorkbookTests(unittest.TestCase):
                 self.assertEqual(500, ws.cell(activity_rows[1], 9).value)
                 self.assertGreater(len(ws.data_validations.dataValidation), 0)
                 self.assertGreater(len(ws.conditional_formatting), 0)
+                self.assertTrue(
+                    any(
+                        f"A{DATA_START_ROW + 1}:E{DATA_START_ROW + 1}"
+                        in str(key)
+                        for key in ws.conditional_formatting
+                    )
+                )
                 section_range = next(
                     merged
                     for merged in ws.merged_cells.ranges

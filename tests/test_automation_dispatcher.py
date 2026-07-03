@@ -595,6 +595,7 @@ class VersioningTests(unittest.TestCase):
         cost: float,
         activity_end: datetime | None = None,
         baseline_cost: float | None = None,
+        activity_status: str = "Pendiente",
     ) -> bytes:
         workbook = Workbook()
         gantt = workbook.active
@@ -608,9 +609,12 @@ class VersioningTests(unittest.TestCase):
                 "Fecha de Inicio",
                 "Fecha de Fin",
                 "Costo Total",
+                "Estatus",
             ]
         )
-        gantt.append(["Actividad 1", None, activity_end, cost])
+        gantt.append(
+            ["Actividad 1", None, activity_end, cost, activity_status]
+        )
         datos = workbook.create_sheet("Datos")
         datos.append(["Fecha Final", datetime(2026, 12, 31)])
         if baseline_cost is not None:
@@ -708,6 +712,47 @@ class VersioningTests(unittest.TestCase):
         self.assertFalse(result.version_requested)
         self.assertEqual("Actual", result.state)
 
+    def test_status_only_delivery_does_not_create_another_version(self) -> None:
+        class StatusOnlyBackend(FakeBackend):
+            def create_initial_version(
+                self,
+                record: ControlRecord,
+            ) -> VersionArtifact:
+                return VersionArtifact(
+                    identifier="existing-version-id",
+                    web_url="https://contoso/versionados/v1.0.xlsx",
+                    file_name="2026-001_gantt_v1.0.xlsx",
+                    created=False,
+                    version="v1.0",
+                    reasons=(
+                        "Solo cambió Estatus de actividades; no se creó versión.",
+                    ),
+                    source_etag='"status-only-etag"',
+                )
+
+        backend = StatusOnlyBackend()
+        current = record(
+            state="Entregar",
+            version_requested=True,
+            current_version="v1.0",
+        )
+        result = AutomationService(backend, NOW).version(current)
+        self.assertEqual("v1.0", result.current_version)
+        self.assertEqual("Actual", result.state)
+        self.assertFalse(result.version_requested)
+        self.assertFalse(
+            any(
+                "FechaUltimoVersionado" in patch
+                for _, patch in backend.patches
+            )
+        )
+        merged = {
+            key: value
+            for _, patch in backend.patches
+            for key, value in patch.items()
+        }
+        self.assertIn("Solo cambió Estatus", merged["MotivoUltimoVersionado"])
+
     def test_cost_increase_selects_v2(self) -> None:
         decision = decide_version(
             self.gantt_bytes(1200),
@@ -715,6 +760,30 @@ class VersioningTests(unittest.TestCase):
         )
         self.assertEqual("v2.0", decision.version)
         self.assertTrue(decision.cost_increase)
+
+    def test_activity_status_is_excluded_from_planning_fingerprint(self) -> None:
+        previous = self.gantt_bytes(
+            1000,
+            datetime(2026, 12, 20),
+            activity_status="Pendiente",
+        )
+        working = self.gantt_bytes(
+            1000,
+            datetime(2026, 12, 20),
+            activity_status="Completada",
+        )
+        previous_snapshot = snapshot_gantt(previous)
+        working_snapshot = snapshot_gantt(working)
+        self.assertEqual(
+            previous_snapshot.planning_fingerprint,
+            working_snapshot.planning_fingerprint,
+        )
+        decision = decide_version(
+            working,
+            previous,
+            current_version="v1.0",
+        )
+        self.assertFalse(decision.planning_changed)
 
     def test_price_total_is_not_counted_as_project_cost(self) -> None:
         content = self.gantt_bytes(1000, baseline_cost=1000)

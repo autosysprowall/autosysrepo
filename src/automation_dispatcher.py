@@ -120,6 +120,19 @@ CONTROL_COLUMNS: dict[str, dict[str, Any]] = {
     "FechaUltimoVersionado": {"dateTime": {"format": "dateTime"}},
     "VersionadoIntentos": {"number": {}},
     "UltimoErrorVersionado": {"text": {"allowMultipleLines": True}},
+    "PlanificacionFingerprint": {"text": {}},
+    "EstadoActividadesFingerprint": {"text": {}},
+    "AlertasActividadesFingerprint": {"text": {}},
+    "ActividadesAtrasadas": {"number": {}},
+    "ResumenActividadesAtrasadas": {
+        "text": {"allowMultipleLines": True}
+    },
+    "FechaLecturaActividades": {"dateTime": {"format": "dateTime"}},
+    "UltimaAlertaActividadesFingerprint": {"text": {}},
+    "FechaUltimoCorreoActividades": {
+        "dateTime": {"format": "dateTime"}
+    },
+    "UltimoErrorActividades": {"text": {"allowMultipleLines": True}},
 }
 
 NOTIFICATION_COLUMNS: dict[str, dict[str, Any]] = {
@@ -808,6 +821,33 @@ class AutomationService:
                 },
             )
             return record
+
+        if not artifact.created:
+            updates = {
+                "SolicitarVersionado": False,
+                "EstadoGantt": CURRENT_STATE,
+                "StatusExcelDeseado": CURRENT_STATE,
+                "EstadoSyncExcel": "Pendiente",
+                "IntentosSyncExcel": 0,
+                "ProximoIntentoSyncExcel": None,
+                "UltimoErrorSyncExcel": "",
+                "GanttWorkingETag": artifact.source_etag,
+                "UltimoErrorVersionado": "",
+                "MotivoUltimoVersionado": " | ".join(artifact.reasons),
+            }
+            self.backend.patch_control(record.item_id, updates)
+            print(
+                f"Skipped version control={record.item_id}: "
+                f"{' | '.join(artifact.reasons)}"
+            )
+            return replace(
+                record,
+                version_requested=False,
+                state=CURRENT_STATE,
+                desired_excel_status=CURRENT_STATE,
+                excel_sync_state="Pendiente",
+                gantt_etag=artifact.source_etag or record.gantt_etag,
+            )
 
         cycle_minutes = elapsed_minutes(record.progress_started_at, self.now)
         accumulated_minutes = (
@@ -1514,6 +1554,23 @@ class SharePointBackend:
                 content for _, _, content in version_items
             ),
         )
+        if previous_content is not None and not getattr(
+            decision,
+            "planning_changed",
+            True,
+        ):
+            previous_item = version_items[-1][1]
+            return VersionArtifact(
+                identifier=str(previous_item.get("id") or ""),
+                web_url=str(previous_item.get("webUrl") or ""),
+                file_name=str(previous_item.get("name") or ""),
+                created=False,
+                version=current_version,
+                reasons=(
+                    "Solo cambió Estatus de actividades; no se creó versión.",
+                ),
+                source_etag=str(source.get("eTag") or ""),
+            )
         version_content = workbook_with_status(
             working_content,
             CURRENT_STATE,

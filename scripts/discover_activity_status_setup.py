@@ -41,8 +41,10 @@ def main() -> int:
     )
     columns = list_columns(token, str(site["id"]), str(control["id"]))
     available = {
-        str(column.get("name") or column.get("displayName") or "")
+        str(value)
         for column in columns
+        for value in (column.get("name"), column.get("displayName"))
+        if value
     }
     missing = sorted(REQUIRED_COLUMNS - available)
     print(f"Activity status columns missing: {','.join(missing) or 'none'}")
@@ -52,14 +54,17 @@ def main() -> int:
         "auto.sys@prowallpanama.com",
     ).strip()
     search_url = (
-        f"{GRAPH_BASE}/users/{quote(owner, safe='')}/drive/root/"
-        "search(q='.osts')"
+        f"{GRAPH_BASE}/users/{quote(owner, safe='')}/drive/root/delta"
         "?$select=id,name,webUrl,lastModifiedDateTime,parentReference"
     )
-    data = graph_get(token, search_url)
+    items: list[dict[str, object]] = []
+    while search_url:
+        page = graph_get(token, search_url)
+        items.extend(page.get("value") or [])
+        search_url = str(page.get("@odata.nextLink") or "")
     matches = [
         item
-        for item in data.get("value") or []
+        for item in items
         if SCRIPT_NAME.casefold()
         in str(item.get("name") or "").casefold()
     ]
@@ -67,8 +72,16 @@ def main() -> int:
         candidates = sorted(
             [
                 item
-                for item in data.get("value") or []
-                if str(item.get("name") or "").casefold().endswith(".osts")
+                for item in items
+                if (
+                    str(item.get("name") or "").casefold().endswith(".osts")
+                    or "office scripts"
+                    in str(
+                        (item.get("parentReference") or {}).get("path")
+                        if isinstance(item.get("parentReference"), dict)
+                        else ""
+                    ).casefold()
+                )
             ],
             key=lambda item: str(item.get("lastModifiedDateTime") or ""),
             reverse=True,
