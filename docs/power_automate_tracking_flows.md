@@ -165,7 +165,9 @@ El flujo está desplegado y activo:
    - `FileName = File name with extension`;
    - `FileIdentifier = Identifier`;
    - `FolderPath = Folder path`;
-   - `FileLink = Link to item`;
+   - `FileLink` se omite porque el trigger puede entregar un vínculo relativo
+     incompatible con la columna URL; Python resuelve el archivo mediante
+     `FileIdentifier`;
    - `Intentos = 0`;
    - `Notas = Detectado por Power Automate`.
 Este flujo lee solamente la celda de estado mediante Office Scripts. No

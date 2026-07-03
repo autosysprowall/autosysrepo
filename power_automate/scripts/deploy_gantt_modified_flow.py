@@ -393,10 +393,6 @@ def build_definition() -> dict[str, Any]:
                                                                 "@triggerBody()?"
                                                                 "['{Path}']"
                                                             ),
-                                                            "item/FileLink": (
-                                                                "@triggerBody()?"
-                                                                "['{Link}']"
-                                                            ),
                                                             "item/Intentos": "0",
                                                             "item/Notas": (
                                                                 "Entrega detectada "

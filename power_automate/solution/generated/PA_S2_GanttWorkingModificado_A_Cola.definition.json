@@ -264,7 +264,6 @@
                             "item/Filename": "@triggerBody()?['{FilenameWithExtension}']",
                             "item/FileID": "@triggerBody()?['{Identifier}']",
                             "item/FolderPath": "@triggerBody()?['{Path}']",
-                            "item/FileLink": "@triggerBody()?['{Link}']",
                             "item/Intentos": "0",
                             "item/Notas": "Entrega detectada por Power Automate."
                           },
