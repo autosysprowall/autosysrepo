@@ -117,6 +117,19 @@ jobs:
           GANTT_ESCALATION_CC: ${{ vars.GANTT_ESCALATION_CC || 'jaime.madrid@prowallpanama.com;enrique.correa@prowallpanama.com' }}
         run: python scripts/validate_email_delivery.py
 
+      - name: Discover activity status setup
+        if: github.event_name == 'workflow_dispatch' && inputs.control_item_id == 'DISCOVER_ACTIVITY_STATUS_SETUP'
+        env:
+          MS_GRAPH_TENANT_ID: ${{ secrets.MS_TENANT_ID }}
+          MS_GRAPH_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
+          MS_GRAPH_CLIENT_SECRET: ${{ secrets.MS_CLIENT_SECRET || secrets.MS_GRAPH_CLIENT_SECRET }}
+          SP_SITE_HOSTNAME: ${{ vars.SP_SITE_HOSTNAME || 'sciprowall.sharepoint.com' }}
+          SP_SITE_PATH: ${{ vars.SP_SITE_PATH || '/sites/PROYECTOSPROWALL' }}
+          SP_CONTROL_LIST_NAME: ${{ vars.SP_CONTROL_LIST_NAME || 'Control_Gantt_Asignaciones' }}
+          SP_CONTROL_LIST_ID: ${{ vars.SP_CONTROL_LIST_ID }}
+          OFFICE_SCRIPT_OWNER_UPN: auto.sys@prowallpanama.com
+        run: python scripts/discover_activity_status_setup.py
+
       - name: Reset Sistema 1 data and requeue official budgets
         if: github.event_name == 'workflow_dispatch' && inputs.reset_system1_data && !inputs.clear_queue_only && !inputs.clear_all_queues
         env:

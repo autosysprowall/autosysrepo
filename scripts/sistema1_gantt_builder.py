@@ -1464,7 +1464,7 @@ def _add_gantt_validations_and_bars(
     ws.add_data_validation(date_validation)
     status_validation = DataValidation(
         type="list",
-        formula1='"Pendiente,En progreso,En revisión inicial"',
+        formula1='"Pendiente,En Progreso,Completada"',
         allow_blank=True,
     )
     ws.add_data_validation(status_validation)
@@ -1473,6 +1473,8 @@ def _add_gantt_validations_and_bars(
     last_calendar = get_column_letter(calendar_end_column)
     bar_fill = PatternFill(fill_type="solid", start_color="2F80ED", end_color="2F80ED")
     invalid_fill = PatternFill(fill_type="solid", start_color="F8D7DA", end_color="F8D7DA")
+    overdue_fill = PatternFill(fill_type="solid", start_color="F4CCCC", end_color="F4CCCC")
+    overdue_font = Font(color="9C0006", bold=True)
     for row_number in activity_rows:
         date_validation.add(f"{start_column}{row_number}:{end_column}{row_number}")
         status_validation.add(f"{status_column}{row_number}")
@@ -1498,6 +1500,22 @@ def _add_gantt_validations_and_bars(
                     f'${end_column}{row_number}<${start_column}{row_number})'
                 ],
                 fill=invalid_fill,
+            ),
+        )
+        overdue_formula = (
+            f'=OR('
+            f'AND(${status_column}{row_number}="Pendiente",'
+            f'${start_column}{row_number}<>"",TODAY()>${start_column}{row_number}),'
+            f'AND(${status_column}{row_number}="En Progreso",'
+            f'${end_column}{row_number}<>"",TODAY()>${end_column}{row_number})'
+            f')'
+        )
+        ws.conditional_formatting.add(
+            f"A{row_number}:{status_column}{row_number}",
+            FormulaRule(
+                formula=[overdue_formula],
+                fill=overdue_fill,
+                font=overdue_font,
             ),
         )
 

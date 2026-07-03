@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import hashlib
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -18,6 +19,17 @@ PROJECT_STATUS_LABELS = {
     "estado general del gantt",
     "estado general gantt",
 }
+PLANNING_HEADERS = (
+    "actividad",
+    "item",
+    "cc",
+    "fecha de inicio",
+    "fecha de fin",
+    "unidad",
+    "cantidad",
+    "costo unitario",
+    "costo total",
+)
 
 
 def _normalized(value: Any) -> str:
@@ -132,6 +144,7 @@ class GanttSnapshot:
     baseline_costs: dict[str, float]
     contractual_end: date | None
     latest_activity_end: date | None
+    planning_fingerprint: str
 
     @property
     def total_cost(self) -> float:
@@ -161,6 +174,7 @@ class VersionDecision:
     previous_total_cost: float
     working_total_cost: float
     chronology_limit: date | None
+    planning_changed: bool
 
 
 def parse_version(value: str) -> tuple[int, int] | None:
@@ -195,10 +209,28 @@ def snapshot_gantt(content: bytes) -> GanttSnapshot:
         costs = {header: 0.0 for header in cost_columns}
         end_column = headers["fecha de fin"]
         latest_end: date | None = None
+        planning_columns = [
+            (header, headers[header])
+            for header in PLANNING_HEADERS
+            if header in headers
+        ]
+        planning_rows: list[str] = []
         for row_number in range(header_row + 1, ws.max_row + 1):
             activity = ws.cell(row_number, headers["actividad"]).value
             if activity in (None, ""):
                 continue
+            serialized: list[str] = []
+            for header, column in planning_columns:
+                value = ws.cell(row_number, column).value
+                parsed_date = _as_date(value)
+                if parsed_date:
+                    text = parsed_date.isoformat()
+                elif isinstance(value, float):
+                    text = f"{value:.12g}"
+                else:
+                    text = _normalized(value)
+                serialized.append(f"{header}={text}")
+            planning_rows.append("|".join(serialized))
             activity_end = _as_date(ws.cell(row_number, end_column).value)
             if activity_end and (latest_end is None or activity_end > latest_end):
                 latest_end = activity_end
@@ -233,6 +265,9 @@ def snapshot_gantt(content: bytes) -> GanttSnapshot:
             baseline_costs=baseline_costs,
             contractual_end=_contractual_end(workbook),
             latest_activity_end=latest_end,
+            planning_fingerprint=hashlib.sha256(
+                "\n".join(planning_rows).encode("utf-8")
+            ).hexdigest(),
         )
     finally:
         workbook.close()
@@ -257,6 +292,11 @@ def decide_version(
         previous_snapshot.total_cost
         if previous_snapshot is not None
         else working.baseline_total_cost
+    )
+    planning_changed = bool(
+        previous_snapshot is None
+        or working.planning_fingerprint
+        != previous_snapshot.planning_fingerprint
     )
     if previous_total is None:
         raise ValueError(
@@ -317,6 +357,7 @@ def decide_version(
         previous_total_cost=previous_total,
         working_total_cost=working.total_cost,
         chronology_limit=chronology_limit,
+        planning_changed=planning_changed,
     )
 
 

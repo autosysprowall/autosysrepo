@@ -1,8 +1,9 @@
 # Power Automate - Sistema 1
 
 Esta carpeta documenta Power Automate para Autosys. Sistema 1 registra
-presupuestos aprobados. Sistema 2 registra modificaciones del Gantt WORKING y
-envía las notificaciones decididas por Python.
+presupuestos aprobados. Sistema 2 registra modificaciones del Gantt WORKING,
+sincroniza su estado general y envía las notificaciones decididas por Python.
+Sistema 3 supervisa los estados de las actividades dentro del Gantt.
 
 Power Automate no genera Gantts, no llama a GitHub y no usa Power BI. Su rol es registrar eventos, notificar personas y actualizar estados humanos.
 
@@ -16,11 +17,11 @@ Los sistemas cubren:
 - correo de asignacion, advertencias dia 3 y dia 6;
 - vencimiento/escalamiento dia 9;
 - registro de modificaciones para leer el status del Excel.
+- alertas por actividades `Pendiente` o `En Progreso` fuera de fecha.
 
 Fuera de alcance:
 
 - Power BI;
-- versionado oficial del Gantt;
 - Power Automate llamando a GitHub;
 - conectores HTTP premium hacia GitHub;
 - mover, borrar o reorganizar archivos;
@@ -60,6 +61,7 @@ El esquema esperado esta documentado en [specs/sharepoint_lists_expected_schema.
 | `PA_S2_EnviarNotificacionesGantt` | Automated cloud flow | Envia items pendientes de la cola de notificaciones y confirma flags. |
 | `PA_S2_GanttWorkingModificado_A_Cola` | Automated cloud flow | Registra modificaciones del Gantt para lectura por Python. |
 | `PA_S2_SincronizarEstadoGanttExcel` | Automated cloud flow | Sincroniza `Gantt!B6` mediante Office Scripts sin reemplazar el workbook completo. |
+| `PA_S3_MonitorearEstadosActividades` | Scheduled cloud flow | Lee cada 15 minutos los estados por actividad, registra atrasos y envía una alerta idempotente. |
 
 Documentacion nodo por nodo:
 
@@ -69,9 +71,11 @@ Documentacion nodo por nodo:
 - [flows/PA_S1_GanttEnRevision.md](flows/PA_S1_GanttEnRevision.md)
 - [Definicion completa de los flujos de Sistema 2](../docs/power_automate_tracking_flows.md)
 - [Sincronizacion segura de Gantt!B6](flows/PA_S2_SincronizarEstadoGanttExcel.md)
+- [Alertas por estado de actividades](../docs/activity_status_alerts.md)
 - Office Scripts:
   `office_scripts/GetGanttStatus.ts` y
-  `office_scripts/SetGanttStatus.ts`.
+  `office_scripts/SetGanttStatus.ts`,
+  `office_scripts/GetGanttActivityStatus.ts`.
 
 Los tres flujos S1 de correo/tracking quedan como referencia historica y no
 deben activarse junto con Sistema 2, porque duplicarian correos o estados.
