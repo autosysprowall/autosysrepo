@@ -56,6 +56,10 @@ Si solo se necesita volver a crear eventos sin borrar los proyectos activos,
 usar `reset_queue_only=true` y dejar `reset_system1_data=false`; esta opción no
 es apropiada para una prueba integral desde cero.
 
+Si `Presupuestos Aprobados` está vacío y se quiere preparar una carga limpia,
+usar `clear_queue_only=true`. Esta opción elimina los items existentes de la
+cola sin reencolar archivos y no toca `Proyectos Activos`.
+
 ## Dispatcher externo
 
 El cuerpo que invoca GitHub debe contener:

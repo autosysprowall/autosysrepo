@@ -260,6 +260,14 @@ def main() -> int:
         help="Vacía solamente la cola y reencola presupuestos; no toca Proyectos Activos.",
     )
     parser.add_argument(
+        "--clear-only",
+        action="store_true",
+        help=(
+            "Vacía la cola sin exigir ni reencolar presupuestos. "
+            "Requiere --queue-only."
+        ),
+    )
+    parser.add_argument(
         "--reset-related-tracking",
         action="store_true",
         help=(
@@ -268,6 +276,8 @@ def main() -> int:
         ),
     )
     args = parser.parse_args()
+    if args.clear_only and not args.queue_only:
+        raise RuntimeError("--clear-only requiere --queue-only.")
 
     settings = load_settings()
     active_root = normalized_path(settings.active_projects_root)
@@ -356,7 +366,7 @@ def main() -> int:
     if not args.execute:
         print("Dry run only. Use --execute with the exact --confirm-active-root value.")
         return 0
-    if not budgets:
+    if not budgets and not args.clear_only:
         raise RuntimeError(
             "Reinicio cancelado: no se encontraron presupuestos .xlsx en Presupuestos Aprobados."
         )
@@ -382,20 +392,22 @@ def main() -> int:
                 str(item["id"]),
             )
 
-    created_ids = [
-        queue_budget(
-            token,
-            site_id,
-            str(queue_list["id"]),
-            approved_root,
-            item,
-            preserved_uploaders.get(
-                str(item.get("name") or "").strip().casefold(),
-                "",
-            ),
-        )
-        for item in budgets
-    ]
+    created_ids = []
+    if not args.clear_only:
+        created_ids = [
+            queue_budget(
+                token,
+                site_id,
+                str(queue_list["id"]),
+                approved_root,
+                item,
+                preserved_uploaders.get(
+                    str(item.get("name") or "").strip().casefold(),
+                    "",
+                ),
+            )
+            for item in budgets
+        ]
     print(
         "Controlled reset completed: "
         f"deleted_active={len(active_to_delete)} "

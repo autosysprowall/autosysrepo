@@ -44,6 +44,11 @@ on:
         required: false
         type: boolean
         default: false
+      clear_queue_only:
+        description: "Vaciar solo la cola sin reencolar archivos"
+        required: false
+        type: boolean
+        default: false
       reset_related_tracking:
         description: "Reiniciar control/notificaciones solo para presupuestos reencolados"
         required: false
@@ -108,7 +113,7 @@ jobs:
         run: python scripts/validate_email_delivery.py
 
       - name: Reset Sistema 1 data and requeue official budgets
-        if: github.event_name == 'workflow_dispatch' && inputs.reset_system1_data
+        if: github.event_name == 'workflow_dispatch' && inputs.reset_system1_data && !inputs.clear_queue_only
         env:
           MS_GRAPH_TENANT_ID: ${{ secrets.MS_TENANT_ID }}
           MS_GRAPH_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
@@ -134,7 +139,7 @@ jobs:
           python scripts/sistema1_reset_and_requeue.py "${args[@]}"
 
       - name: Reset queue only and requeue approved budgets
-        if: github.event_name == 'workflow_dispatch' && inputs.reset_queue_only && !inputs.reset_system1_data
+        if: github.event_name == 'workflow_dispatch' && inputs.reset_queue_only && !inputs.reset_system1_data && !inputs.clear_queue_only
         env:
           MS_GRAPH_TENANT_ID: ${{ secrets.MS_TENANT_ID }}
           MS_GRAPH_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
@@ -159,6 +164,25 @@ jobs:
             args+=(--reset-related-tracking)
           fi
           python scripts/sistema1_reset_and_requeue.py "${args[@]}"
+
+      - name: Clear queue without requeue
+        if: github.event_name == 'workflow_dispatch' && inputs.clear_queue_only
+        env:
+          MS_GRAPH_TENANT_ID: ${{ secrets.MS_TENANT_ID }}
+          MS_GRAPH_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
+          MS_GRAPH_CLIENT_SECRET: ${{ secrets.MS_CLIENT_SECRET || secrets.MS_GRAPH_CLIENT_SECRET }}
+          SP_SITE_HOSTNAME: ${{ vars.SP_SITE_HOSTNAME || 'sciprowall.sharepoint.com' }}
+          SP_SITE_PATH: ${{ vars.SP_SITE_PATH || '/sites/PROYECTOSPROWALL' }}
+          SP_QUEUE_LIST_NAME: ${{ vars.SP_QUEUE_LIST_NAME || 'Cola_Automatizacion_Proyectos' }}
+          SP_QUEUE_LIST_ID: ${{ vars.SP_QUEUE_LIST_ID }}
+          SP_ACTIVE_PROJECTS_ROOT: Proyectos/Proyectos Activos
+          SP_APPROVED_BUDGETS_ROOT: Proyectos/Presupuestos Aprobados
+        run: |
+          python scripts/sistema1_reset_and_requeue.py \
+            --execute \
+            --queue-only \
+            --clear-only \
+            --confirm-active-root "Proyectos/Proyectos Activos"
 
       - name: Run SharePoint automation dispatcher
         env:
