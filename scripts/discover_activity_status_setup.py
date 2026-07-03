@@ -48,6 +48,21 @@ def main() -> int:
     }
     missing = sorted(REQUIRED_COLUMNS - available)
     print(f"Activity status columns missing: {','.join(missing) or 'none'}")
+    for column in columns:
+        internal_name = str(column.get("name") or "")
+        display_name = str(column.get("displayName") or "")
+        if (
+            internal_name in REQUIRED_COLUMNS
+            or display_name in REQUIRED_COLUMNS
+            or any(
+                internal_name.startswith(required[:20])
+                for required in REQUIRED_COLUMNS
+            )
+        ):
+            print(
+                "ACTIVITY_STATUS_COLUMN "
+                f"display={display_name!r} internal={internal_name!r}"
+            )
 
     owner = os.getenv(
         "OFFICE_SCRIPT_OWNER_UPN",
