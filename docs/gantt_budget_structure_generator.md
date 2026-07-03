@@ -212,7 +212,9 @@ se copian encima del encabezado principal del Gantt.
 
 ## Calendario
 
-El calendario usa exclusivamente `Fecha de Inicio` y `Fecha Final` de `Datos`.
+El calendario usa exclusivamente `Fecha de Inicio` y la fecha final de
+`Datos`. Para esta última acepta `Fecha Fin`, `Fecha de Fin` y `Fecha Final`
+sin distinguir mayúsculas, minúsculas ni tildes.
 La celda o fila `Duracion` se elimina del Gantt generado y nunca se usa para
 calcular, extender ni corregir el calendario.
 

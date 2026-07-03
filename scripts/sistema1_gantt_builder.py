@@ -339,7 +339,10 @@ def read_project_window(wb) -> tuple[date, date, list[str]]:
     if "Datos" in wb.sheetnames:
         ws = wb["Datos"]
         start = parse_date_value(find_value_near_label(ws, ("fecha", "inicio")))
-        end = parse_date_value(find_value_near_label(ws, ("fecha", "final")))
+        # "fin" también coincide con "final", por lo que cubre Fecha Fin,
+        # Fecha de Fin y Fecha Final después de normalizar capitalización y
+        # tildes.
+        end = parse_date_value(find_value_near_label(ws, ("fecha", "fin")))
 
     if start and end:
         if end < start:

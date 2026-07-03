@@ -501,6 +501,24 @@ class GanttWorkbookTests(unittest.TestCase):
         self.assertEqual(date(2026, 8, 20), end)
         self.assertTrue(any("exclusivamente" in note for note in notes))
 
+    def test_project_calendar_accepts_final_date_label_aliases_case_insensitively(self) -> None:
+        for label in (
+            "Fecha Fin",
+            "FECHA DE FIN",
+            "fecha de fin",
+            "Fecha Final",
+            "FECHA FINAL",
+        ):
+            with self.subTest(label=label):
+                wb = Workbook()
+                wb.remove(wb.active)
+                datos = wb.create_sheet("Datos")
+                datos.append(["Fecha de Inicio", date(2026, 7, 1)])
+                datos.append([label, date(2026, 8, 20)])
+                start, end, _ = read_project_window(wb)
+                self.assertEqual(date(2026, 7, 1), start)
+                self.assertEqual(date(2026, 8, 20), end)
+
     def test_project_calendar_does_not_infer_missing_date_from_duration(self) -> None:
         wb = Workbook()
         wb.remove(wb.active)
