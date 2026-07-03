@@ -268,6 +268,14 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--clear-all-state",
+        action="store_true",
+        help=(
+            "Con --clear-only, vacía también Control_Gantt_Asignaciones "
+            "y Cola_Notificaciones_Gantt."
+        ),
+    )
+    parser.add_argument(
         "--reset-related-tracking",
         action="store_true",
         help=(
@@ -278,6 +286,8 @@ def main() -> int:
     args = parser.parse_args()
     if args.clear_only and not args.queue_only:
         raise RuntimeError("--clear-only requiere --queue-only.")
+    if args.clear_all_state and not args.clear_only:
+        raise RuntimeError("--clear-all-state requiere --clear-only.")
 
     settings = load_settings()
     active_root = normalized_path(settings.active_projects_root)
@@ -309,7 +319,7 @@ def main() -> int:
     related_notification_items: list[dict[str, Any]] = []
     control_list = None
     notification_list = None
-    if args.reset_related_tracking:
+    if args.reset_related_tracking or args.clear_all_state:
         control_list = resolve_list(
             token,
             site_id,
@@ -322,30 +332,36 @@ def main() -> int:
             os.getenv("SP_NOTIFICATION_LIST_NAME", "Cola_Notificaciones_Gantt"),
             os.getenv("SP_NOTIFICATION_LIST_ID") or None,
         )
-        related_control_items = [
-            item
-            for item in list_all_queue_items(
-                token,
-                site_id,
-                str(control_list["id"]),
-            )
-            if str((item.get("fields") or {}).get("ProyectoID") or "")
-            .strip()
-            .casefold()
-            in project_ids
-        ]
-        related_notification_items = [
-            item
-            for item in list_all_queue_items(
-                token,
-                site_id,
-                str(notification_list["id"]),
-            )
-            if str((item.get("fields") or {}).get("ProyectoID") or "")
-            .strip()
-            .casefold()
-            in project_ids
-        ]
+        all_control_items = list_all_queue_items(
+            token,
+            site_id,
+            str(control_list["id"]),
+        )
+        all_notification_items = list_all_queue_items(
+            token,
+            site_id,
+            str(notification_list["id"]),
+        )
+        if args.clear_all_state:
+            related_control_items = all_control_items
+            related_notification_items = all_notification_items
+        else:
+            related_control_items = [
+                item
+                for item in all_control_items
+                if str((item.get("fields") or {}).get("ProyectoID") or "")
+                .strip()
+                .casefold()
+                in project_ids
+            ]
+            related_notification_items = [
+                item
+                for item in all_notification_items
+                if str((item.get("fields") or {}).get("ProyectoID") or "")
+                .strip()
+                .casefold()
+                in project_ids
+            ]
 
     print("Sistema 1 controlled reset plan:")
     print(f"- Active root: {active_root}")

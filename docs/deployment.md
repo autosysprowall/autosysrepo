@@ -60,6 +60,11 @@ Si `Presupuestos Aprobados` está vacío y se quiere preparar una carga limpia,
 usar `clear_queue_only=true`. Esta opción elimina los items existentes de la
 cola sin reencolar archivos y no toca `Proyectos Activos`.
 
+Para reiniciar completamente el estado de una prueba integral, usar
+`clear_all_queues=true`. Vacía `Cola_Automatizacion_Proyectos`,
+`Control_Gantt_Asignaciones` y `Cola_Notificaciones_Gantt`, sin reencolar ni
+eliminar archivos.
+
 ## Dispatcher externo
 
 El cuerpo que invoca GitHub debe contener:
