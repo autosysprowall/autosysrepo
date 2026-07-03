@@ -53,7 +53,7 @@ def main() -> int:
     ).strip()
     search_url = (
         f"{GRAPH_BASE}/users/{quote(owner, safe='')}/drive/root/"
-        f"search(q='{quote(SCRIPT_NAME, safe='')}')"
+        "search(q='.osts')"
         "?$select=id,name,webUrl,lastModifiedDateTime,parentReference"
     )
     data = graph_get(token, search_url)
@@ -64,6 +64,22 @@ def main() -> int:
         in str(item.get("name") or "").casefold()
     ]
     if not matches:
+        candidates = sorted(
+            [
+                item
+                for item in data.get("value") or []
+                if str(item.get("name") or "").casefold().endswith(".osts")
+            ],
+            key=lambda item: str(item.get("lastModifiedDateTime") or ""),
+            reverse=True,
+        )
+        for item in candidates[:20]:
+            print(
+                "OFFICE_SCRIPT_CANDIDATE "
+                f"name={item.get('name')!r} "
+                f"id={item.get('id')} "
+                f"modified={item.get('lastModifiedDateTime')}"
+            )
         print(
             f"ERROR: Office Script {SCRIPT_NAME!r} no encontrado "
             f"en el OneDrive de {owner}.",
