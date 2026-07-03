@@ -1,0 +1,299 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "$connections": {
+      "defaultValue": {},
+      "type": "Object"
+    },
+    "$authentication": {
+      "defaultValue": {},
+      "type": "SecureObject"
+    }
+  },
+  "triggers": {
+    "Every_15_minutes": {
+      "type": "Recurrence",
+      "recurrence": {
+        "frequency": "Minute",
+        "interval": 15,
+        "timeZone": "SA Pacific Standard Time"
+      }
+    }
+  },
+  "actions": {
+    "Get_control_items": {
+      "runAfter": {},
+      "type": "OpenApiConnection",
+      "inputs": {
+        "parameters": {
+          "dataset": "https://sciprowall.sharepoint.com/sites/PROYECTOSPROWALL",
+          "table": "afe5544b-3f60-40e4-81a0-01e86920f5f2",
+          "$top": 500
+        },
+        "host": {
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+          "connectionName": "shared_sharepointonline",
+          "operationId": "GetItems"
+        },
+        "authentication": "@parameters('$authentication')"
+      }
+    },
+    "For_each_control": {
+      "runAfter": {
+        "Get_control_items": [
+          "Succeeded"
+        ]
+      },
+      "type": "Foreach",
+      "foreach": "@body('Get_control_items')?['value']",
+      "runtimeConfiguration": {
+        "concurrency": {
+          "repetitions": 1
+        }
+      },
+      "actions": {
+        "If_trackable": {
+          "runAfter": {},
+          "type": "If",
+          "expression": "@and(not(empty(items('For_each_control')?['GanttWorkingIdentifier'])),not(equals(toLower(coalesce(items('For_each_control')?['EstadoGantt']?['Value'],items('For_each_control')?['EstadoGannt']?['Value'],items('For_each_control')?['EstadoGantt'],items('For_each_control')?['EstadoGannt'],'')),'vencido')))",
+          "actions": {
+            "Read_activity_status": {
+              "runAfter": {},
+              "type": "OpenApiConnection",
+              "inputs": {
+                "parameters": {
+                  "source": "https://sciprowall.sharepoint.com/sites/PROYECTOSPROWALL",
+                  "drive": "b!gT--atFwrEiNN1Dm9ygu7gAK2MbJi0RKuVaPM52nyYJBRIiNpNq1Rb608Jq90UM6",
+                  "file": "@items('For_each_control')?['GanttWorkingIdentifier']",
+                  "scriptId": "ms-officescript%3A%2F%2Fonedrive_business_itemlink%2F01DOEBQSO45Q4J7LT44FA2VM7CZW75R4EW"
+                },
+                "host": {
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_excelonlinebusiness",
+                  "connectionName": "shared_excelonlinebusiness",
+                  "operationId": "RunScriptProd"
+                },
+                "authentication": "@parameters('$authentication')"
+              }
+            },
+            "If_valid_result": {
+              "runAfter": {
+                "Read_activity_status": [
+                  "Succeeded"
+                ]
+              },
+              "type": "If",
+              "expression": "@equals(outputs('Read_activity_status')?['body/result']?['valid'],true)",
+              "actions": {
+                "If_status_only_change": {
+                  "runAfter": {},
+                  "type": "If",
+                  "expression": "@and(not(empty(items('For_each_control')?['PlanificacionFingerprint'])),equals(outputs('Read_activity_status')?['body/result']?['planningFingerprint'],items('For_each_control')?['PlanificacionFingerprint']),not(equals(outputs('Read_activity_status')?['body/result']?['activityStatusFingerprint'],items('For_each_control')?['EstadoActividadesFingerprint'])))",
+                  "actions": {
+                    "Keep_general_status_actual": {
+                      "runAfter": {},
+                      "type": "OpenApiConnection",
+                      "inputs": {
+                        "parameters": {
+                          "dataset": "https://sciprowall.sharepoint.com/sites/PROYECTOSPROWALL",
+                          "table": "afe5544b-3f60-40e4-81a0-01e86920f5f2",
+                          "id": "@items('For_each_control')?['ID']",
+                          "item/Title": "@items('For_each_control')?['Title']",
+                          "item/EstadoGannt/Value": "Actual",
+                          "item/StatusExcelDeseado": "Actual",
+                          "item/EstadoSyncExcel": "Pendiente",
+                          "item/IntentosSyncExcel": 0,
+                          "item/UltimoErrorSyncExcel": ""
+                        },
+                        "host": {
+                          "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                          "connectionName": "shared_sharepointonline",
+                          "operationId": "PatchItem"
+                        },
+                        "authentication": "@parameters('$authentication')"
+                      }
+                    }
+                  },
+                  "else": {
+                    "actions": {}
+                  }
+                },
+                "Update_activity_tracking": {
+                  "runAfter": {
+                    "If_status_only_change": [
+                      "Succeeded"
+                    ]
+                  },
+                  "type": "OpenApiConnection",
+                  "inputs": {
+                    "parameters": {
+                      "dataset": "https://sciprowall.sharepoint.com/sites/PROYECTOSPROWALL",
+                      "table": "afe5544b-3f60-40e4-81a0-01e86920f5f2",
+                      "id": "@items('For_each_control')?['ID']",
+                      "item/Title": "@items('For_each_control')?['Title']",
+                      "item/PlanificacionFingerprint": "@outputs('Read_activity_status')?['body/result']?['planningFingerprint']",
+                      "item/EstadoActividadesFingerprint": "@outputs('Read_activity_status')?['body/result']?['activityStatusFingerprint']",
+                      "item/AlertasActividadesFingerprint": "@outputs('Read_activity_status')?['body/result']?['alertFingerprint']",
+                      "item/ActividadesAtrasadas": "@outputs('Read_activity_status')?['body/result']?['overdueCount']",
+                      "item/ResumenActividadesAtrasadas": "@outputs('Read_activity_status')?['body/result']?['summary']",
+                      "item/FechaLecturaActividades": "@utcNow()",
+                      "item/UltimaAlertaActividadesFingerpri": "@if(empty(outputs('Read_activity_status')?['body/result']?['alertFingerprint']),'',items('For_each_control')?['UltimaAlertaActividadesFingerpri'])",
+                      "item/UltimoErrorActividades": ""
+                    },
+                    "host": {
+                      "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                      "connectionName": "shared_sharepointonline",
+                      "operationId": "PatchItem"
+                    },
+                    "authentication": "@parameters('$authentication')"
+                  }
+                },
+                "If_new_activity_alert": {
+                  "runAfter": {
+                    "Update_activity_tracking": [
+                      "Succeeded"
+                    ]
+                  },
+                  "type": "If",
+                  "expression": "@and(not(empty(outputs('Read_activity_status')?['body/result']?['alertFingerprint'])),not(equals(outputs('Read_activity_status')?['body/result']?['alertFingerprint'],items('For_each_control')?['UltimaAlertaActividadesFingerpri'])))",
+                  "actions": {
+                    "If_engineer_email": {
+                      "runAfter": {},
+                      "type": "If",
+                      "expression": "@not(empty(items('For_each_control')?['IngenieroEmail']))",
+                      "actions": {
+                        "Send_activity_alert": {
+                          "runAfter": {},
+                          "type": "OpenApiConnection",
+                          "inputs": {
+                            "parameters": {
+                              "emailMessage/To": "@items('For_each_control')?['IngenieroEmail']",
+                              "emailMessage/Cc": "@items('For_each_control')?['SupervisoresEmail']",
+                              "emailMessage/Subject": "@concat('Alerta de actividades atrasadas - ',coalesce(items('For_each_control')?['ProyectoID'],''),' ',coalesce(items('For_each_control')?['NombreProyecto'],''))",
+                              "emailMessage/Body": "@concat('<p>Se detectaron actividades atrasadas en el Gantt del proyecto ',coalesce(items('For_each_control')?['NombreProyecto'],items('For_each_control')?['ProyectoID'],'sin identificar'),'.</p>','<p><strong>Total:</strong> ',string(outputs('Read_activity_status')?['body/result']?['overdueCount']),'</p>','<p>',replace(coalesce(outputs('Read_activity_status')?['body/result']?['summary'],''),decodeUriComponent('%0A'),'<br>'),'</p>','<p>Actualice la columna Estatus en el mismo archivo WORKING.</p>')",
+                              "emailMessage/Importance": "Normal"
+                            },
+                            "host": {
+                              "apiId": "/providers/Microsoft.PowerApps/apis/shared_office365",
+                              "connectionName": "shared_office365",
+                              "operationId": "SendEmailV2"
+                            },
+                            "authentication": "@parameters('$authentication')"
+                          }
+                        },
+                        "Confirm_activity_alert": {
+                          "runAfter": {
+                            "Send_activity_alert": [
+                              "Succeeded"
+                            ]
+                          },
+                          "type": "OpenApiConnection",
+                          "inputs": {
+                            "parameters": {
+                              "dataset": "https://sciprowall.sharepoint.com/sites/PROYECTOSPROWALL",
+                              "table": "afe5544b-3f60-40e4-81a0-01e86920f5f2",
+                              "id": "@items('For_each_control')?['ID']",
+                              "item/Title": "@items('For_each_control')?['Title']",
+                              "item/UltimaAlertaActividadesFingerpri": "@outputs('Read_activity_status')?['body/result']?['alertFingerprint']",
+                              "item/FechaUltimoCorreoActividades": "@utcNow()",
+                              "item/UltimoErrorActividades": ""
+                            },
+                            "host": {
+                              "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                              "connectionName": "shared_sharepointonline",
+                              "operationId": "PatchItem"
+                            },
+                            "authentication": "@parameters('$authentication')"
+                          }
+                        }
+                      },
+                      "else": {
+                        "actions": {
+                          "Record_missing_email": {
+                            "runAfter": {},
+                            "type": "OpenApiConnection",
+                            "inputs": {
+                              "parameters": {
+                                "dataset": "https://sciprowall.sharepoint.com/sites/PROYECTOSPROWALL",
+                                "table": "afe5544b-3f60-40e4-81a0-01e86920f5f2",
+                                "id": "@items('For_each_control')?['ID']",
+                                "item/Title": "@items('For_each_control')?['Title']",
+                                "item/UltimoErrorActividades": "IngenieroEmail vacío; no se envió alerta."
+                              },
+                              "host": {
+                                "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                                "connectionName": "shared_sharepointonline",
+                                "operationId": "PatchItem"
+                              },
+                              "authentication": "@parameters('$authentication')"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "else": {
+                    "actions": {}
+                  }
+                }
+              },
+              "else": {
+                "actions": {
+                  "Record_invalid_result": {
+                    "runAfter": {},
+                    "type": "OpenApiConnection",
+                    "inputs": {
+                      "parameters": {
+                        "dataset": "https://sciprowall.sharepoint.com/sites/PROYECTOSPROWALL",
+                        "table": "afe5544b-3f60-40e4-81a0-01e86920f5f2",
+                        "id": "@items('For_each_control')?['ID']",
+                        "item/Title": "@items('For_each_control')?['Title']",
+                        "item/UltimoErrorActividades": "@outputs('Read_activity_status')?['body/result']?['message']",
+                        "item/FechaLecturaActividades": "@utcNow()"
+                      },
+                      "host": {
+                        "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                        "connectionName": "shared_sharepointonline",
+                        "operationId": "PatchItem"
+                      },
+                      "authentication": "@parameters('$authentication')"
+                    }
+                  }
+                }
+              }
+            },
+            "Record_script_failure": {
+              "runAfter": {
+                "Read_activity_status": [
+                  "Failed",
+                  "TimedOut"
+                ]
+              },
+              "type": "OpenApiConnection",
+              "inputs": {
+                "parameters": {
+                  "dataset": "https://sciprowall.sharepoint.com/sites/PROYECTOSPROWALL",
+                  "table": "afe5544b-3f60-40e4-81a0-01e86920f5f2",
+                  "id": "@items('For_each_control')?['ID']",
+                  "item/Title": "@items('For_each_control')?['Title']",
+                  "item/UltimoErrorActividades": "Falló GetGanttActivityStatus.",
+                  "item/FechaLecturaActividades": "@utcNow()"
+                },
+                "host": {
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                  "connectionName": "shared_sharepointonline",
+                  "operationId": "PatchItem"
+                },
+                "authentication": "@parameters('$authentication')"
+              }
+            }
+          },
+          "else": {
+            "actions": {}
+          }
+        }
+      }
+    }
+  },
+  "outputs": {}
+}

@@ -107,5 +107,11 @@ La lista de SharePoint es la fuente de verdad. Power Automate sincroniza
 `Gantt!B6` mediante el Office Script `SetGanttStatus`; un bloqueo temporal del
 Excel no invalida el versionado.
 
+La columna `Estatus` de las actividades tampoco forma parte del fingerprint de
+planificación. Cambiar una actividad entre `Pendiente`, `En Progreso` y
+`Completada` no crea una versión. El cambio solo alimenta el monitor de atrasos
+de Power Automate y el estado general vuelve a `Actual` cuando la planificación
+no cambió.
+
 Cada archivo dentro de `gantts/versionados` forma el historial inmutable del
 proyecto.

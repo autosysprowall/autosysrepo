@@ -89,6 +89,15 @@ Funcion: seguimiento humano del Gantt WORKING generado por Python.
 | `GanttWorkingETag` | Single line of text | No | Último contenido conocido por el dispatcher. |
 | `UltimoETagAutomatizacion` | Single line of text | No | eTag producido por Power Automate; evita bucles. |
 | `FechaUltimaModificacionGantt` | Date and time | No | Última modificación observada en SharePoint. |
+| `PlanificacionFingerprint` | Single line of text | No | Huella de planificación, sin incluir `Estatus`. |
+| `EstadoActividadesFingerprint` | Single line of text | No | Huella de los estados por actividad. |
+| `AlertasActividadesFingerprint` | Single line of text | No | Huella de los atrasos detectados en la lectura actual. |
+| `ActividadesAtrasadas` | Number | No | Cantidad de actividades vencidas. |
+| `ResumenActividadesAtrasadas` | Multiple lines of text | No | Resumen consolidado de actividades vencidas. |
+| `FechaLecturaActividades` | Date and time | No | Última ejecución válida del monitor. |
+| `UltimaAlertaActividadesFingerprint` | Single line of text | No | Última alerta enviada; evita correos duplicados. |
+| `FechaUltimoCorreoActividades` | Date and time | No | Fecha del último correo de atrasos. |
+| `UltimoErrorActividades` | Multiple lines of text | No | Último error del monitor de actividades. |
 
 ### Valores permitidos de EstadoGantt
 
@@ -128,4 +137,6 @@ Funcion: cola idempotente para que Power Automate envie correos con Outlook.
 - No usar HTTP premium hacia GitHub.
 - No tocar `/Proyectos/PROYECTOS TERMINADOS/`.
 - Power Automate registra y notifica; Python procesa.
-- GitHub Actions ejecuta el dispatcher una vez por hora.
+- El dispatcher externo puede invocar GitHub Actions para el procesamiento
+  robusto; el monitor de actividades corre directamente en Power Automate
+  cada 15 minutos.
