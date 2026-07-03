@@ -108,6 +108,19 @@ def test_drive_item_created_by_email_falls_back_to_last_modifier() -> None:
     ) == "uploader@example.com"
 
 
+def test_drive_item_uploader_prefers_last_modifier_over_original_creator() -> None:
+    assert drive_item_created_by_email(
+        {
+            "createdBy": {
+                "user": {"email": "original-creator@example.com"}
+            },
+            "lastModifiedBy": {
+                "user": {"email": "folder-uploader@example.com"}
+            },
+        }
+    ) == "folder-uploader@example.com"
+
+
 def test_reset_preserves_existing_uploader_by_filename() -> None:
     assert queue_created_by_by_filename(
         [

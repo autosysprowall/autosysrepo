@@ -61,7 +61,7 @@ Mapeo de campos:
 | `FileIdentifier` | `Identifier` |
 | `FolderPath` | `Folder path` o `Path` |
 | `FileLink` | `Link to item` |
-| `CreatedByEmail` | `Created by Email` |
+| `CreatedByEmail` | `Modified by Email` (`Editor/Email`) |
 | `CreatedTime` | `Created` |
 | `Intentos` | `0` |
 | `UltimoError` | vacio |

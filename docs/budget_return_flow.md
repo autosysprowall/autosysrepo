@@ -115,8 +115,10 @@ Así la cola no contiene un rechazo finalizado, pero tampoco pierde el control
 de duplicados durante el proceso.
 
 Durante un reinicio controlado, el script conserva `CreatedByEmail` del evento
-anterior usando el nombre del archivo. Si no existía, intenta `createdBy` y
-`lastModifiedBy` del archivo en Microsoft Graph. El respaldo a autosys evita
+anterior usando el nombre del archivo. Aunque la columna mantiene ese nombre
+por compatibilidad, su valor corresponde primero a `lastModifiedBy`/`Editor`,
+es decir, a quien colocó o modificó el archivo en la carpeta. `createdBy` se usa
+solo como respaldo. El respaldo final a autosys evita
 que una devolución desaparezca por tener el destinatario vacío.
 
 Las expresiones exactas para alternar `test/live` están en

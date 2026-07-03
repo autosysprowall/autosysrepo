@@ -39,3 +39,16 @@ def test_queue_processor_recovers_uploader_from_drive_item() -> None:
             },
         }
     ) == "uploader@example.com"
+
+
+def test_queue_processor_prefers_last_modifier_as_folder_uploader() -> None:
+    assert drive_item_uploader_email(
+        {
+            "createdBy": {
+                "user": {"email": "original-creator@example.com"}
+            },
+            "lastModifiedBy": {
+                "user": {"email": "folder-uploader@example.com"}
+            },
+        }
+    ) == "folder-uploader@example.com"

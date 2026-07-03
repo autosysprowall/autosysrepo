@@ -288,7 +288,7 @@ def trim_note(value: str, max_len: int = 240) -> str:
 
 
 def drive_item_uploader_email(item: dict[str, Any]) -> str:
-    for identity_key in ("createdBy", "lastModifiedBy"):
+    for identity_key in ("lastModifiedBy", "createdBy"):
         identity = item.get(identity_key) or {}
         user = identity.get("user") or {}
         email = str(

@@ -80,7 +80,7 @@
               "item/FileID": "@triggerOutputs()?['body/{Identifier}']",
               "item/FolderPath": "@triggerOutputs()?['body/{Path}']",
               "item/FileLink": "@triggerOutputs()?['body/{Link}']",
-              "item/CreatedByEmail": "@triggerOutputs()?['body/Author/Email']",
+              "item/CreatedByEmail": "@triggerOutputs()?['body/Editor/Email']",
               "item/CreatedTime": "@triggerOutputs()?['body/Created']",
               "item/Intentos": "0",
               "item/Notas": "Registrado por Power Automate"

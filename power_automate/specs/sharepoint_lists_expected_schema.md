@@ -15,7 +15,7 @@ Funcion: cola tecnica de eventos que Python/GitHub Actions procesa cada hora.
 | `FileIdentifier` | Single line of text | Si | Identificador SharePoint del archivo. |
 | `FolderPath` | Single line of text | Si | Ruta de carpeta fuente. |
 | `FileLink` | Hyperlink o Single line of text | Si | Link al archivo. |
-| `CreatedByEmail` | Single line of text | No | Correo de quien subio el archivo. |
+| `CreatedByEmail` | Single line of text | No | Correo de quien colocó/modificó el archivo (`Editor/Email`); nombre histórico. |
 | `CreatedTime` | Date and time | No | Fecha de creacion del archivo. |
 | `Intentos` | Number | Si | Numero de intentos Python. |
 | `UltimoError` | Multiple lines of text | No | Error mas reciente. |

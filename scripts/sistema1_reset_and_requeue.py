@@ -178,7 +178,9 @@ def sharepoint_file_identifier(folder_path: str, file_name: str) -> str:
 
 
 def drive_item_created_by_email(item: dict[str, Any]) -> str:
-    for identity_key in ("createdBy", "lastModifiedBy"):
+    # La columna conserva su nombre histórico, pero representa a quien colocó
+    # o modificó por última vez el archivo en la carpeta de entrada.
+    for identity_key in ("lastModifiedBy", "createdBy"):
         identity = item.get(identity_key) or {}
         user = identity.get("user") or {}
         email = str(
