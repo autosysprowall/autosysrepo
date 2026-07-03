@@ -178,9 +178,35 @@ def sharepoint_file_identifier(folder_path: str, file_name: str) -> str:
 
 
 def drive_item_created_by_email(item: dict[str, Any]) -> str:
-    created_by = item.get("createdBy") or {}
-    user = created_by.get("user") or {}
-    return str(user.get("email") or user.get("userPrincipalName") or "").strip()
+    for identity_key in ("createdBy", "lastModifiedBy"):
+        identity = item.get(identity_key) or {}
+        user = identity.get("user") or {}
+        email = str(
+            user.get("email")
+            or user.get("userPrincipalName")
+            or ""
+        ).strip()
+        if email:
+            return email
+    return ""
+
+
+def queue_created_by_by_filename(
+    queue_items: list[dict[str, Any]],
+) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for item in queue_items:
+        fields = item.get("fields") or {}
+        file_name = str(
+            fields.get("Filename")
+            or fields.get("FileName")
+            or fields.get("Title")
+            or ""
+        ).strip()
+        email = str(fields.get("CreatedByEmail") or "").strip()
+        if file_name and email:
+            result[file_name.casefold()] = email
+    return result
 
 
 def queue_budget(
@@ -189,6 +215,7 @@ def queue_budget(
     list_id: str,
     approved_root: str,
     item: dict[str, Any],
+    preserved_created_by_email: str = "",
 ) -> str:
     name = str(item.get("name") or "").strip()
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -200,7 +227,10 @@ def queue_budget(
         "FileID": sharepoint_file_identifier(approved_root, name),
         "FolderPath": f"Documentos compartidos/{normalized_path(approved_root)}/",
         "CreatedTime": now,
-        "CreatedByEmail": drive_item_created_by_email(item),
+        "CreatedByEmail": (
+            preserved_created_by_email.strip()
+            or drive_item_created_by_email(item)
+        ),
         "Intentos": "0",
         "UltimoError": "",
         "Notas": "Reencolado por reinicio controlado de Sistema 1.",
@@ -256,6 +286,7 @@ def main() -> int:
     )
     active_children = list_drive_children(token, site_id, active_root)
     queue_items = list_all_queue_items(token, site_id, str(queue_list["id"]))
+    preserved_uploaders = queue_created_by_by_filename(queue_items)
     source_children = list_drive_children(token, site_id, approved_root)
     budgets = approved_budget_files(source_children)
     project_ids = {
@@ -350,7 +381,17 @@ def main() -> int:
             )
 
     created_ids = [
-        queue_budget(token, site_id, str(queue_list["id"]), approved_root, item)
+        queue_budget(
+            token,
+            site_id,
+            str(queue_list["id"]),
+            approved_root,
+            item,
+            preserved_uploaders.get(
+                str(item.get("name") or "").strip().casefold(),
+                "",
+            ),
+        )
         for item in budgets
     ]
     print(

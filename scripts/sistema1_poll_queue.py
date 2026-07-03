@@ -287,6 +287,20 @@ def trim_note(value: str, max_len: int = 240) -> str:
     return value[:max_len]
 
 
+def drive_item_uploader_email(item: dict[str, Any]) -> str:
+    for identity_key in ("createdBy", "lastModifiedBy"):
+        identity = item.get(identity_key) or {}
+        user = identity.get("user") or {}
+        email = str(
+            user.get("email")
+            or user.get("userPrincipalName")
+            or ""
+        ).strip()
+        if email:
+            return email
+    return ""
+
+
 def rejection_queue_updates(error: str) -> dict[str, Any]:
     return {
         "Estado": "RequiereRevision",
@@ -577,6 +591,17 @@ def process_queue_item(
         local_gantt = work_dir / "output" / identity.gantt_file_name
 
         source_item = download_drive_file(token, site_id, source_drive_path, local_budget)
+        if not str(fields.get("CreatedByEmail") or "").strip():
+            uploader_email = drive_item_uploader_email(source_item)
+            if uploader_email:
+                update_queue_fields(
+                    token,
+                    site_id,
+                    queue_list_id,
+                    item_id,
+                    {"CreatedByEmail": uploader_email},
+                )
+                fields["CreatedByEmail"] = uploader_email
         llm_enabled = settings.llm_mode == "live"
         build_result = build_gantt_workbook(
             local_budget,

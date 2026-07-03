@@ -15,6 +15,7 @@ from sistema1_reset_and_requeue import (  # noqa: E402
     active_items_to_delete,
     approved_budget_files,
     drive_item_created_by_email,
+    queue_created_by_by_filename,
     sharepoint_file_identifier,
     validate_roots,
 )
@@ -94,3 +95,27 @@ def test_drive_item_created_by_email_uses_graph_metadata() -> None:
     assert drive_item_created_by_email(
         {"createdBy": {"user": {"email": "comercial@example.com"}}}
     ) == "comercial@example.com"
+
+
+def test_drive_item_created_by_email_falls_back_to_last_modifier() -> None:
+    assert drive_item_created_by_email(
+        {
+            "createdBy": {"user": {"displayName": "Invitado"}},
+            "lastModifiedBy": {
+                "user": {"userPrincipalName": "uploader@example.com"}
+            },
+        }
+    ) == "uploader@example.com"
+
+
+def test_reset_preserves_existing_uploader_by_filename() -> None:
+    assert queue_created_by_by_filename(
+        [
+            {
+                "fields": {
+                    "Filename": "Presupuesto.xlsx",
+                    "CreatedByEmail": "uploader@example.com",
+                }
+            }
+        ]
+    ) == {"presupuesto.xlsx": "uploader@example.com"}

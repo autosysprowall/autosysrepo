@@ -70,6 +70,8 @@ será esa cuenta mientras no se configure `From (Send as)`.
    enviar si no puede obtener el contenido.
 5. **Send an email (V2)**:
    - To: `CreatedByEmail`;
+   - respaldo si el uploader no puede resolverse:
+     `auto.sys@prowallpanama.com`;
    - CC: `jaime.madrid@prowallpanama.com`;
    - Subject: `Presupuesto No Válido Proyecto <NombreProyecto>`;
    - Body: texto aprobado, `UltimoError`, nombre, enlace y guía de presupuesto;
@@ -111,6 +113,11 @@ idempotencia. Los eventos rechazados pueden eliminarse únicamente después de:
 
 Así la cola no contiene un rechazo finalizado, pero tampoco pierde el control
 de duplicados durante el proceso.
+
+Durante un reinicio controlado, el script conserva `CreatedByEmail` del evento
+anterior usando el nombre del archivo. Si no existía, intenta `createdBy` y
+`lastModifiedBy` del archivo en Microsoft Graph. El respaldo a autosys evita
+que una devolución desaparezca por tener el destinatario vacío.
 
 Las expresiones exactas para alternar `test/live` están en
 `docs/email_templates_and_delivery_modes.md`.

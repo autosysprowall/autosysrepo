@@ -22,6 +22,7 @@ RETURN_FLOW_ID = "56a4ec6a-5fd0-4c74-b9cb-7c65b0375928"
 ASSIGNMENT_FLOW_ID = "e5dfdb04-f552-4de8-ad90-df91abfa862d"
 SITE_URL = "https://sciprowall.sharepoint.com/sites/PROYECTOSPROWALL"
 CONTROL_LIST_ID = "afe5544b-3f60-40e4-81a0-01e86920f5f2"
+TEST_RECIPIENT = "auto.sys@prowallpanama.com"
 RETURN_LIVE_CC = "jaime.madrid@prowallpanama.com"
 BUDGET_GUIDE_NAME = "Guia_AutoSys_Comercial_Presupuesto.pdf"
 ENGINEER_GUIDE_NAME = "Guia_AutoSys_Ingenieros_Residentes_Planta.pdf"
@@ -102,7 +103,10 @@ def corrected_return_definition(
 ) -> dict[str, Any]:
     result = copy.deepcopy(definition)
     parameters = result["actions"]["Send_an_email_(V2)"]["inputs"]["parameters"]
-    parameters["emailMessage/To"] = "@triggerBody()?['CreatedByEmail']"
+    parameters["emailMessage/To"] = (
+        "@if(empty(triggerBody()?['CreatedByEmail']), "
+        f"'{TEST_RECIPIENT}', triggerBody()?['CreatedByEmail'])"
+    )
     parameters["emailMessage/Cc"] = RETURN_LIVE_CC
     parameters["emailMessage/Subject"] = (
         "@concat('Presupuesto No Válido Proyecto ', "

@@ -25,7 +25,8 @@ def test_return_flow_uses_expression_for_subject_and_error() -> None:
     parameters = corrected["actions"]["Send_an_email_(V2)"]["inputs"]["parameters"]
 
     assert parameters["emailMessage/Subject"].startswith("@concat(")
-    assert parameters["emailMessage/To"] == "@triggerBody()?['CreatedByEmail']"
+    assert "CreatedByEmail" in parameters["emailMessage/To"]
+    assert "auto.sys@prowallpanama.com" in parameters["emailMessage/To"]
     assert parameters["emailMessage/Cc"] == "jaime.madrid@prowallpanama.com"
     assert "Presupuesto No Válido Proyecto" in parameters["emailMessage/Subject"]
     assert "[PRUEBA]" not in parameters["emailMessage/Subject"]
