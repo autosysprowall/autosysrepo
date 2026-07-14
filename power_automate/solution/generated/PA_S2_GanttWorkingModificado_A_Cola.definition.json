@@ -113,7 +113,7 @@
             ]
           },
           "type": "If",
-          "expression": "@or(equals(toLower(coalesce(first(body('Filter_control_items'))?['EstadoSyncExcel'],'')),'procesando'),and(equals(first(body('Filter_control_items'))?['UltimoETagAutomatizacion'],'__POWER_AUTOMATE_PENDING_ETAG__'),not(empty(first(body('Filter_control_items'))?['FechaUltimoSyncExcel'])),lessOrEquals(ticks(triggerBody()?['Modified']),ticks(addMinutes(first(body('Filter_control_items'))?['FechaUltimoSyncExcel'],2)))))",
+          "expression": "@or(equals(toLower(coalesce(first(body('Filter_control_items'))?['EstadoSyncExcel'],'')),'procesando'),and(not(empty(first(body('Filter_control_items'))?['UltimoETagAutomatizacion'])),not(equals(first(body('Filter_control_items'))?['UltimoETagAutomatizacion'],'__POWER_AUTOMATE_PENDING_ETAG__')),equals(first(body('Filter_control_items'))?['UltimoETagAutomatizacion'],triggerBody()?['{ETag}'])))",
           "actions": {
             "Confirm_automation_change": {
               "runAfter": {},
