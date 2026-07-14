@@ -211,6 +211,78 @@ def queue_created_by_by_filename(
     return result
 
 
+def queue_file_keys(
+    queue_items: list[dict[str, Any]],
+    approved_root: str,
+) -> set[str]:
+    result: set[str] = set()
+    for item in queue_items:
+        fields = item.get("fields") or {}
+        file_name = str(
+            fields.get("Filename")
+            or fields.get("FileName")
+            or fields.get("Title")
+            or ""
+        ).strip()
+        file_id = str(
+            fields.get("FileID")
+            or fields.get("FileIdentifier")
+            or ""
+        ).strip()
+        if file_id:
+            result.add(f"id:{file_id.casefold()}")
+        if file_name:
+            result.add(f"name:{file_name.casefold()}")
+            result.add(
+                "id:"
+                + sharepoint_file_identifier(
+                    approved_root,
+                    file_name,
+                ).casefold()
+            )
+    return result
+
+
+def control_project_ids(control_items: list[dict[str, Any]]) -> set[str]:
+    result: set[str] = set()
+    for item in control_items:
+        project_id = str(
+            (item.get("fields") or {}).get("ProyectoID")
+            or ""
+        ).strip()
+        if project_id:
+            result.add(project_id.casefold())
+    return result
+
+
+def missing_budget_files(
+    budgets: list[dict[str, Any]],
+    queue_items: list[dict[str, Any]],
+    control_items: list[dict[str, Any]],
+    approved_root: str,
+) -> list[dict[str, Any]]:
+    existing_queue_keys = queue_file_keys(queue_items, approved_root)
+    existing_project_ids = control_project_ids(control_items)
+    missing: list[dict[str, Any]] = []
+    for item in budgets:
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        item_keys = {
+            f"name:{name.casefold()}",
+            "id:" + sharepoint_file_identifier(approved_root, name).casefold(),
+        }
+        if str(item.get("id") or "").strip():
+            item_keys.add(f"drive:{str(item.get('id')).casefold()}")
+        identity = derive_project_identity(name)
+        if item_keys & existing_queue_keys:
+            continue
+        if identity.project_id.casefold() in existing_project_ids:
+            continue
+        missing.append(item)
+    return missing
+
+
 def queue_budget(
     token: str,
     site_id: str,
@@ -218,6 +290,7 @@ def queue_budget(
     approved_root: str,
     item: dict[str, Any],
     preserved_created_by_email: str = "",
+    note: str = "Reencolado por reinicio controlado de Sistema 1.",
 ) -> str:
     name = str(item.get("name") or "").strip()
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -235,7 +308,7 @@ def queue_budget(
         ),
         "Intentos": "0",
         "UltimoError": "",
-        "Notas": "Reencolado por reinicio controlado de Sistema 1.",
+        "Notas": note,
     }
     created = graph_post(
         token,
@@ -283,7 +356,25 @@ def main() -> int:
             "derivados de los presupuestos reencolados."
         ),
     )
+    parser.add_argument(
+        "--enqueue-missing",
+        action="store_true",
+        help=(
+            "Escanea Presupuestos Aprobados y encola solo presupuestos .xlsx "
+            "que no estén ya en la cola ni en Control_Gantt_Asignaciones. "
+            "No elimina archivos ni listas."
+        ),
+    )
     args = parser.parse_args()
+    if args.enqueue_missing and (
+        args.queue_only
+        or args.clear_only
+        or args.clear_all_state
+        or args.reset_related_tracking
+    ):
+        raise RuntimeError(
+            "--enqueue-missing no se combina con reinicios, limpiezas ni borrados."
+        )
     if args.clear_only and not args.queue_only:
         raise RuntimeError("--clear-only requiere --queue-only.")
     if args.clear_all_state and not args.clear_only:
@@ -311,6 +402,59 @@ def main() -> int:
     preserved_uploaders = queue_created_by_by_filename(queue_items)
     source_children = list_drive_children(token, site_id, approved_root)
     budgets = approved_budget_files(source_children)
+    if args.enqueue_missing:
+        control_list = resolve_list(
+            token,
+            site_id,
+            settings.control_list_name,
+            settings.control_list_id,
+        )
+        control_items = list_all_queue_items(
+            token,
+            site_id,
+            str(control_list["id"]),
+        )
+        missing_budgets = missing_budget_files(
+            budgets,
+            queue_items,
+            control_items,
+            approved_root,
+        )
+        print("Sistema 1 approved-budget scan:")
+        print(f"- Approved root: {approved_root}")
+        print(f"- Official budgets found: {len(budgets)}")
+        print(f"- Existing queue items: {len(queue_items)}")
+        print(f"- Existing control items: {len(control_items)}")
+        print(f"- Missing budgets to enqueue: {len(missing_budgets)}")
+        for item in missing_budgets:
+            print(f"  - {item.get('name')}")
+        if not args.execute:
+            print("Dry run only. Use --execute to enqueue missing budgets.")
+            return 0
+        created_ids = [
+            queue_budget(
+                token,
+                site_id,
+                str(queue_list["id"]),
+                approved_root,
+                item,
+                preserved_uploaders.get(
+                    str(item.get("name") or "").strip().casefold(),
+                    "",
+                ),
+                note=(
+                    "Encolado automáticamente por escaneo del dispatcher; "
+                    "Power Automate no creó evento inicial."
+                ),
+            )
+            for item in missing_budgets
+        ]
+        print(
+            "Approved-budget scan completed: "
+            f"enqueued={len(created_ids)} "
+            f"queue_ids={','.join(created_ids)}"
+        )
+        return 0
     project_ids = {
         derive_project_identity(str(item.get("name") or "")).project_id.casefold()
         for item in budgets

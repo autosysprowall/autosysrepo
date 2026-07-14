@@ -63,24 +63,43 @@ Si estas variables no están presentes, Python conserva la lógica productiva de
 Para ejecutar la prueba real hay que habilitar manualmente los flujos y el
 workflow, apuntando a `test/full-system-lab`.
 
-## Trigger de presupuestos movidos
+## Detección de presupuestos aprobados
 
-Para el laboratorio, el registro automático de presupuestos debe usar el flow:
+En esta rama, el registro inicial ya no depende del trigger de Power Automate.
+Antes de ejecutar el dispatcher principal, GitHub Actions escanea:
 
 ```text
-PA_S1_RegistrarPresupuestoMovido_A_Cola
+Proyectos/Presupuestos Aprobados
 ```
 
-Este flow usa SharePoint **When a file is created or modified (properties
-only)** sobre:
+El paso `Enqueue missing approved budgets` crea items pendientes en
+`Cola_Automatizacion_Proyectos` solo para presupuestos `.xlsx` que:
+
+- no estén ya en la cola;
+- no tengan ya un item en `Control_Gantt_Asignaciones` con el mismo
+  `ProyectoID`;
+- no sean archivos temporales `~$`.
+
+Esto evita el bottleneck observado con SharePoint/Power Automate, donde un
+archivo movido a la carpeta puede no disparar inmediatamente el trigger o puede
+no dispararlo del todo según cómo SharePoint registre el movimiento.
+
+Los flows de Power Automate `PA_S1_RegistrarPresupuestoAprobado` y
+`PA_S1_RegistrarPresupuestoMovido_A_Cola` quedan como fallback opcional, pero
+no son la fuente principal para la prueba integral. Si alguno crea un item antes
+de GitHub, el escaneo de GitHub detecta que ya existe y no duplica el evento.
+
+Para probar desde cero:
+
+1. Vaciar estado si hace falta con `clear_all_queues=true`.
+2. Mover/subir presupuestos a:
 
 ```text
 /Documentos compartidos/Proyectos/Presupuestos Aprobados
 ```
 
-Esto permite detectar archivos que fueron movidos a la carpeta, no solo archivos
-creados originalmente ahí. El flow anterior `PA_S1_RegistrarPresupuestoAprobado`
-usa `When a file is created` y puede no dispararse cuando SharePoint registra el
-movimiento como modificación. Para evitar duplicados, el flow nuevo revisa si ya
-existe un item `Pendiente` o `Procesando` con el mismo `FileID` antes de crear
-otro item en `Cola_Automatizacion_Proyectos`.
+3. Ejecutar `SharePoint Automation Dispatcher` en la rama
+   `test/full-system-lab` sin marcar casillas.
+
+El primer paso del workflow encolará los presupuestos faltantes y luego el
+dispatcher procesará la cola en la misma corrida.

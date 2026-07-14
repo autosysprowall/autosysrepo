@@ -15,6 +15,7 @@ from sistema1_reset_and_requeue import (  # noqa: E402
     active_items_to_delete,
     approved_budget_files,
     drive_item_created_by_email,
+    missing_budget_files,
     queue_created_by_by_filename,
     sharepoint_file_identifier,
     validate_roots,
@@ -132,3 +133,36 @@ def test_reset_preserves_existing_uploader_by_filename() -> None:
             }
         ]
     ) == {"presupuesto.xlsx": "uploader@example.com"}
+
+
+def test_missing_budget_files_skips_budget_already_in_queue() -> None:
+    approved_root = "Proyectos/Presupuestos Aprobados"
+    budget = {"id": "drive-1", "name": "2025-111 Proyecto prueba.xlsx", "file": {}}
+    queue_items = [
+        {
+            "fields": {
+                "Filename": "2025-111 Proyecto prueba.xlsx",
+                "FileID": sharepoint_file_identifier(
+                    approved_root,
+                    "2025-111 Proyecto prueba.xlsx",
+                ),
+            }
+        }
+    ]
+
+    assert missing_budget_files([budget], queue_items, [], approved_root) == []
+
+
+def test_missing_budget_files_skips_budget_already_in_control() -> None:
+    approved_root = "Proyectos/Presupuestos Aprobados"
+    budget = {"id": "drive-1", "name": "2025-111 Proyecto prueba.xlsx", "file": {}}
+    control_items = [{"fields": {"ProyectoID": "2025-111"}}]
+
+    assert missing_budget_files([budget], [], control_items, approved_root) == []
+
+
+def test_missing_budget_files_returns_budget_not_in_queue_or_control() -> None:
+    approved_root = "Proyectos/Presupuestos Aprobados"
+    budget = {"id": "drive-1", "name": "2025-111 Proyecto prueba.xlsx", "file": {}}
+
+    assert missing_budget_files([budget], [], [], approved_root) == [budget]
