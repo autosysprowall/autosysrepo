@@ -111,10 +111,10 @@ jobs:
 
       - name: Validate email templates and delivery mode
         env:
-          NOTIFICATION_DELIVERY_MODE: ${{ vars.NOTIFICATION_DELIVERY_MODE || 'test' }}
+          NOTIFICATION_DELIVERY_MODE: test
           NOTIFICATION_TEST_RECIPIENT: ${{ vars.NOTIFICATION_TEST_RECIPIENT || 'auto.sys@prowallpanama.com' }}
           ENGINEER_GUIDE_URL: ${{ vars.ENGINEER_GUIDE_URL }}
-          GANTT_ESCALATION_CC: ${{ vars.GANTT_ESCALATION_CC || 'jaime.madrid@prowallpanama.com;enrique.correa@prowallpanama.com' }}
+          GANTT_ESCALATION_CC: ""
         run: python scripts/validate_email_delivery.py
 
       - name: Discover activity status setup
@@ -238,10 +238,14 @@ jobs:
           SP_QUEUE_LIST_ID: ${{ vars.SP_QUEUE_LIST_ID }}
           SP_CONTROL_LIST_NAME: ${{ vars.SP_CONTROL_LIST_NAME || 'Control_Gantt_Asignaciones' }}
           SP_CONTROL_LIST_ID: ${{ vars.SP_CONTROL_LIST_ID }}
-          NOTIFICATION_DELIVERY_MODE: ${{ vars.NOTIFICATION_DELIVERY_MODE || 'test' }}
+          NOTIFICATION_DELIVERY_MODE: test
           NOTIFICATION_TEST_RECIPIENT: ${{ vars.NOTIFICATION_TEST_RECIPIENT || 'auto.sys@prowallpanama.com' }}
           ENGINEER_GUIDE_URL: ${{ vars.ENGINEER_GUIDE_URL }}
-          GANTT_ESCALATION_CC: ${{ vars.GANTT_ESCALATION_CC || 'jaime.madrid@prowallpanama.com;enrique.correa@prowallpanama.com' }}
+          GANTT_ESCALATION_CC: ""
+          GANTT_ASSIGNMENT_DEADLINE_MINUTES: "30"
+          GANTT_WARNING1_MINUTES: "10"
+          GANTT_WARNING2_MINUTES: "20"
+          GANTT_EXPIRATION_MINUTES: "30"
           SP_ACTIVE_PROJECTS_ROOT: Proyectos/Proyectos Activos
           OPENAI_ACTIVITY_PLANNER_MODE: ${{ vars.OPENAI_ACTIVITY_PLANNER_MODE || 'live' }}
           OPENAI_ACTIVITY_PLANNER_MODEL: ${{ vars.OPENAI_ACTIVITY_PLANNER_MODEL || 'gpt-4o-mini' }}

@@ -38,6 +38,7 @@ OUTLOOK_CONNECTION = (
 CONTROL = "items('For_each_control')"
 RESULT = "outputs('Read_activity_status')?['body/result']"
 LAST_ALERT_INTERNAL = "UltimaAlertaActividadesFingerpri"
+ACTIVITY_ALERT_TEST_RECIPIENT = "auto.sys@prowallpanama.com"
 
 
 def open_api_action(
@@ -139,6 +140,12 @@ def build_definition() -> dict[str, Any]:
     )
     email_body = (
         "@concat("
+        "'<p><strong>MODO PRUEBA:</strong> esta alerta fue redirigida "
+        "exclusivamente a autosys.</p>',"
+        "'<p><strong>Destinatario real previsto:</strong> ',"
+        f"coalesce({CONTROL}?['IngenieroEmail'],'(vacío)'),'</p>',"
+        "'<p><strong>CC real previsto:</strong> ',"
+        f"coalesce({CONTROL}?['SupervisoresEmail'],'(vacío)'),'</p>',"
         "'<p>Se detectaron actividades atrasadas en el Gantt del proyecto "
         "',coalesce("
         f"{CONTROL}?['NombreProyecto'],{CONTROL}?['ProyectoID'],'sin identificar'"
@@ -275,15 +282,15 @@ def build_definition() -> dict[str, Any]:
                                                             "SendEmailV2",
                                                             {
                                                                 "emailMessage/To": (
-                                                                    f"@{CONTROL}?"
-                                                                    "['IngenieroEmail']"
+                                                                    ACTIVITY_ALERT_TEST_RECIPIENT
                                                                 ),
-                                                                "emailMessage/Cc": (
-                                                                    f"@{CONTROL}?"
-                                                                    "['SupervisoresEmail']"
-                                                                ),
+                                                                "emailMessage/Cc": "",
                                                                 "emailMessage/Subject": (
-                                                                    email_subject
+                                                                    email_subject.replace(
+                                                                        "@concat(",
+                                                                        "@concat('[PRUEBA] ',",
+                                                                        1,
+                                                                    )
                                                                 ),
                                                                 "emailMessage/Body": (
                                                                     email_body

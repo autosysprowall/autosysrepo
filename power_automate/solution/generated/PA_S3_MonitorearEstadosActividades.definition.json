@@ -167,10 +167,10 @@
                           "type": "OpenApiConnection",
                           "inputs": {
                             "parameters": {
-                              "emailMessage/To": "@items('For_each_control')?['IngenieroEmail']",
-                              "emailMessage/Cc": "@items('For_each_control')?['SupervisoresEmail']",
-                              "emailMessage/Subject": "@concat('Alerta de actividades atrasadas - ',coalesce(items('For_each_control')?['ProyectoID'],''),' ',coalesce(items('For_each_control')?['NombreProyecto'],''))",
-                              "emailMessage/Body": "@concat('<p>Se detectaron actividades atrasadas en el Gantt del proyecto ',coalesce(items('For_each_control')?['NombreProyecto'],items('For_each_control')?['ProyectoID'],'sin identificar'),'.</p>','<p><strong>Total:</strong> ',string(outputs('Read_activity_status')?['body/result']?['overdueCount']),'</p>','<p>',replace(coalesce(outputs('Read_activity_status')?['body/result']?['summary'],''),decodeUriComponent('%0A'),'<br>'),'</p>','<p>Actualice la columna Estatus en el mismo archivo WORKING.</p>')",
+                              "emailMessage/To": "auto.sys@prowallpanama.com",
+                              "emailMessage/Cc": "",
+                              "emailMessage/Subject": "@concat('[PRUEBA] ','Alerta de actividades atrasadas - ',coalesce(items('For_each_control')?['ProyectoID'],''),' ',coalesce(items('For_each_control')?['NombreProyecto'],''))",
+                              "emailMessage/Body": "@concat('<p><strong>MODO PRUEBA:</strong> esta alerta fue redirigida exclusivamente a autosys.</p>','<p><strong>Destinatario real previsto:</strong> ',coalesce(items('For_each_control')?['IngenieroEmail'],'(vacío)'),'</p>','<p><strong>CC real previsto:</strong> ',coalesce(items('For_each_control')?['SupervisoresEmail'],'(vacío)'),'</p>','<p>Se detectaron actividades atrasadas en el Gantt del proyecto ',coalesce(items('For_each_control')?['NombreProyecto'],items('For_each_control')?['ProyectoID'],'sin identificar'),'.</p>','<p><strong>Total:</strong> ',string(outputs('Read_activity_status')?['body/result']?['overdueCount']),'</p>','<p>',replace(coalesce(outputs('Read_activity_status')?['body/result']?['summary'],''),decodeUriComponent('%0A'),'<br>'),'</p>','<p>Actualice la columna Estatus en el mismo archivo WORKING.</p>')",
                               "emailMessage/Importance": "Normal"
                             },
                             "host": {

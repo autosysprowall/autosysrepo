@@ -79,6 +79,10 @@ DEFAULT_GANTT_ESCALATION_CC = (
     "jaime.madrid@prowallpanama.com;"
     "enrique.correa@prowallpanama.com"
 )
+DEFAULT_GANTT_WARNING1_DAYS = 3
+DEFAULT_GANTT_WARNING2_DAYS = 6
+DEFAULT_GANTT_EXPIRATION_DAYS = 9
+DEFAULT_GANTT_DEADLINE_DAYS = 9
 
 
 CONTROL_COLUMNS: dict[str, dict[str, Any]] = {
@@ -221,6 +225,60 @@ def parse_int(value: Any) -> int:
         return int(float(str(value or "0").strip() or "0"))
     except ValueError:
         return 0
+
+
+def positive_env_int(name: str, default: int) -> int:
+    raw_value = os.getenv(name, "").strip()
+    if not raw_value:
+        return default
+    try:
+        parsed = int(float(raw_value))
+    except ValueError as exc:
+        raise RuntimeError(f"{name} debe ser un número entero positivo.") from exc
+    if parsed <= 0:
+        raise RuntimeError(f"{name} debe ser mayor que cero.")
+    return parsed
+
+
+def assignment_deadline_from(assigned: datetime) -> datetime:
+    if os.getenv("GANTT_ASSIGNMENT_DEADLINE_MINUTES", "").strip():
+        return assigned + timedelta(
+            minutes=positive_env_int("GANTT_ASSIGNMENT_DEADLINE_MINUTES", 30)
+        )
+    return assigned + timedelta(days=DEFAULT_GANTT_DEADLINE_DAYS)
+
+
+def tracking_thresholds() -> tuple[str, int, int, int]:
+    if any(
+        os.getenv(name, "").strip()
+        for name in (
+            "GANTT_WARNING1_MINUTES",
+            "GANTT_WARNING2_MINUTES",
+            "GANTT_EXPIRATION_MINUTES",
+        )
+    ):
+        return (
+            "minutes",
+            positive_env_int("GANTT_WARNING1_MINUTES", 10),
+            positive_env_int("GANTT_WARNING2_MINUTES", 20),
+            positive_env_int("GANTT_EXPIRATION_MINUTES", 30),
+        )
+    return (
+        "days",
+        DEFAULT_GANTT_WARNING1_DAYS,
+        DEFAULT_GANTT_WARNING2_DAYS,
+        DEFAULT_GANTT_EXPIRATION_DAYS,
+    )
+
+
+def tracking_elapsed(assigned: datetime, now: datetime, unit: str) -> int:
+    if unit == "minutes":
+        return elapsed_minutes(assigned, now)
+    return days_since(assigned, now)
+
+
+def tracking_unit_label(unit: str) -> str:
+    return "minutos" if unit == "minutes" else "días"
 
 
 def sanitize_error(exc: Exception) -> str:
@@ -463,7 +521,12 @@ def assignment_notification(record: ControlRecord, assigned: datetime, deadline:
     )
 
 
-def tracking_notification(record: ControlRecord, kind: str, days: int) -> Notification:
+def tracking_notification(
+    record: ControlRecord,
+    kind: str,
+    elapsed: int,
+    unit_label: str = "días",
+) -> Notification:
     project = record.project_name or record.project_id
     base = f"{record.project_id} {record.project_name}".strip()
     escalation_cc = os.getenv(
@@ -474,7 +537,7 @@ def tracking_notification(record: ControlRecord, kind: str, days: int) -> Notifi
     if kind == "Advertencia1":
         subject = f"Advertencia Cronograma Proyecto {project}"
         body = (
-            f"<p>Han pasado {days} días desde la asignación del cronograma del "
+            f"<p>Han pasado {elapsed} {unit_label} desde la asignación del cronograma del "
             f"proyecto {escape(project)}. Por favor agilizar el proceso para "
             "permitir la mejor planificación posible.</p>"
             f"<p><a href=\"{escape(record.gantt_link, quote=True)}\">"
@@ -487,7 +550,7 @@ def tracking_notification(record: ControlRecord, kind: str, days: int) -> Notifi
     if kind == "Advertencia2":
         subject = f"Advertencia Cronograma Proyecto {project}"
         body = (
-            f"<p>Han pasado {days} días desde la asignación del cronograma del "
+            f"<p>Han pasado {elapsed} {unit_label} desde la asignación del cronograma del "
             f"proyecto {escape(project)}. Por favor agilizar el proceso para "
             "permitir la mejor planificación posible.</p>"
             f"<p><a href=\"{escape(record.gantt_link, quote=True)}\">"
@@ -501,8 +564,8 @@ def tracking_notification(record: ControlRecord, kind: str, days: int) -> Notifi
     cc = record.engineer_email if record.supervisors_email else ""
     subject = f"Gantt vencido - {base}"
     body = (
-        f"<p>El Gantt de {escape(base)} llegó al día {days} sin pasar a "
-        "revisión inicial.</p>"
+        f"<p>El Gantt de {escape(base)} llegó al límite de {elapsed} "
+        f"{unit_label} sin pasar a revisión inicial.</p>"
         f"<p><a href=\"{escape(record.gantt_link, quote=True)}\">"
         "Abrir Gantt</a></p>"
         "<p>El registro fue marcado como Vencido.</p>"
@@ -569,12 +632,13 @@ def days_since(assigned: datetime, now: datetime) -> int:
 def due_tracking_kind(record: ControlRecord, now: datetime) -> str:
     if not record.assignment_date or normalized(record.state) not in ACTIVE_TRACKING_STATES:
         return ""
-    elapsed = days_since(record.assignment_date, now)
-    if elapsed >= 9 and not record.expiration_notified:
+    unit, warning1, warning2, expiration = tracking_thresholds()
+    elapsed = tracking_elapsed(record.assignment_date, now, unit)
+    if elapsed >= expiration and not record.expiration_notified:
         return "Vencimiento"
-    if elapsed >= 6 and not record.warning2_sent:
+    if elapsed >= warning2 and not record.warning2_sent:
         return "Advertencia2"
-    if elapsed >= 3 and not record.warning1_sent:
+    if elapsed >= warning1 and not record.warning1_sent:
         return "Advertencia1"
     return ""
 
@@ -963,7 +1027,7 @@ class AutomationService:
                 )
             ):
                 assigned = record.assignment_date or self.now
-                deadline = record.deadline or assigned + timedelta(days=9)
+                deadline = record.deadline or assignment_deadline_from(assigned)
                 self.backend.queue_notification(
                     record,
                     assignment_notification(record, assigned, deadline),
@@ -1037,7 +1101,7 @@ class AutomationService:
             record = replace(record, permission_granted=True)
 
         assigned = record.assignment_date or self.now
-        deadline = record.deadline or (assigned + timedelta(days=9))
+        deadline = record.deadline or assignment_deadline_from(assigned)
         target_state = (
             record.state
             if normalized(record.state) in ACTIVE_TRACKING_STATES
@@ -1094,12 +1158,24 @@ class AutomationService:
                 self.backend.patch_control(record.item_id, {"EstadoGantt": "Vencido"})
                 return replace(record, state="Vencido")
             return record
-        elapsed = days_since(record.assignment_date, self.now) if record.assignment_date else 0
+        unit, _, _, _ = tracking_thresholds()
+        elapsed = (
+            tracking_elapsed(record.assignment_date, self.now, unit)
+            if record.assignment_date
+            else 0
+        )
+        unit_label = tracking_unit_label(unit)
         if kind == "Vencimiento":
-            self.backend.queue_notification(record, tracking_notification(record, kind, elapsed))
+            self.backend.queue_notification(
+                record,
+                tracking_notification(record, kind, elapsed, unit_label),
+            )
             self.backend.patch_control(record.item_id, {"EstadoGantt": "Vencido"})
             return replace(record, state="Vencido")
-        self.backend.queue_notification(record, tracking_notification(record, kind, elapsed))
+        self.backend.queue_notification(
+            record,
+            tracking_notification(record, kind, elapsed, unit_label),
+        )
         return record
 
 

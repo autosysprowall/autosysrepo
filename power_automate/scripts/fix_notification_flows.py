@@ -103,19 +103,22 @@ def corrected_return_definition(
 ) -> dict[str, Any]:
     result = copy.deepcopy(definition)
     parameters = result["actions"]["Send_an_email_(V2)"]["inputs"]["parameters"]
-    parameters["emailMessage/To"] = (
-        "@if(empty(triggerBody()?['CreatedByEmail']), "
-        f"'{TEST_RECIPIENT}', triggerBody()?['CreatedByEmail'])"
-    )
-    parameters["emailMessage/Cc"] = RETURN_LIVE_CC
+    parameters["emailMessage/To"] = TEST_RECIPIENT
+    parameters["emailMessage/Cc"] = ""
     parameters["emailMessage/Subject"] = (
-        "@concat('Presupuesto No Válido Proyecto ', "
+        "@concat('[PRUEBA] Presupuesto No Válido Proyecto ', "
         "if(empty(triggerBody()?['ProyectoID']), "
         "coalesce(triggerBody()?['Title'], triggerBody()?['Filename'], "
         "'sin identificar'), triggerBody()?['ProyectoID']))"
     )
     parameters["emailMessage/Body"] = (
         "@concat("
+        "'<p><strong>MODO PRUEBA:</strong> esta devolución fue redirigida "
+        "exclusivamente a autosys.</p>', "
+        "'<p><strong>Destinatario real previsto:</strong> ', "
+        "coalesce(triggerBody()?['CreatedByEmail'], '(vacío)'), '</p>', "
+        "'<p><strong>CC real previsto:</strong> ', "
+        f"'{RETURN_LIVE_CC}', '</p>', "
         "'<p>El presupuesto del proyecto ', "
         "if(empty(triggerBody()?['ProyectoID']), "
         "coalesce(triggerBody()?['Title'], triggerBody()?['Filename'], "

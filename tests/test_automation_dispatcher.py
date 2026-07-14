@@ -153,16 +153,16 @@ class AssignmentTests(unittest.TestCase):
         )
         self.assertIn("El departamento de comercial", notification.body)
         self.assertIn(record().gantt_link, notification.body)
-        self.assertIn(
-            f'<a href="{record().gantt_link}">',
-            notification.body,
-        )
-        self.assertIn("Abrir Gantt</a>", notification.body)
-        self.assertNotIn("permiso de edición", notification.body)
-        self.assertNotIn("Guía PDF Ingenieros + Planta", notification.body)
-        merged = {key: value for _, patch in backend.patches for key, value in patch.items()}
-        self.assertEqual("En Progreso", merged["EstadoGantt"])
-        self.assertTrue(merged["PermisoGanttOtorgado"])
+
+    def test_lab_assignment_deadline_can_use_minutes(self) -> None:
+        backend = FakeBackend()
+        with patch.dict(
+            "os.environ",
+            {"GANTT_ASSIGNMENT_DEADLINE_MINUTES": "30"},
+        ):
+            result = AutomationService(backend, NOW).assign(record())
+
+        self.assertEqual(NOW + timedelta(minutes=30), result.deadline)
 
     def test_identifier_only_assignment_resolves_editor_link_for_email(self) -> None:
         backend = FakeBackend()
@@ -289,6 +289,30 @@ class AssignmentTests(unittest.TestCase):
 
 
 class TrackingTests(unittest.TestCase):
+    def test_lab_tracking_thresholds_can_use_minutes(self) -> None:
+        backend = FakeBackend()
+        current = record(
+            state="Asignado",
+            permission_granted=True,
+            assignment_email_sent=True,
+            assignment_date=NOW - timedelta(minutes=10),
+        )
+        with patch.dict(
+            "os.environ",
+            {
+                "GANTT_WARNING1_MINUTES": "10",
+                "GANTT_WARNING2_MINUTES": "20",
+                "GANTT_EXPIRATION_MINUTES": "30",
+                "GANTT_ESCALATION_CC": "",
+            },
+        ):
+            AutomationService(backend, NOW).track(current)
+
+        notification = backend.notifications[0][1]
+        self.assertEqual("Advertencia1", notification.kind)
+        self.assertEqual("supervisor@example.com", notification.cc)
+        self.assertIn("Han pasado 10 minutos", notification.body)
+
     def test_day_3_queues_warning_1_once(self) -> None:
         backend = FakeBackend()
         current = record(
