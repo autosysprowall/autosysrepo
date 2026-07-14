@@ -98,13 +98,13 @@ def build_flow_definition() -> dict[str, Any]:
             "$authentication": {"defaultValue": {}, "type": "SecureObject"},
         },
         "triggers": {
-            "When_a_file_is_created_properties_only": {
+            "When_a_file_is_created_or_modified_properties_only": {
                 "type": "OpenApiConnection",
                 "inputs": {
                     "host": {
                         "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
                         "connectionName": "shared_sharepointonline",
-                        "operationId": "GetOnNewFileItems",
+                        "operationId": "GetOnUpdatedFileItems",
                     },
                     "parameters": {
                         "dataset": SITE_URL,
@@ -145,33 +145,75 @@ def build_flow_definition() -> dict[str, Any]:
                     ]
                 },
                 "actions": {
-                    "Create_item_Cola_Automatizacion_Proyectos": {
+                    "Get_existing_queue_items": {
                         "type": "OpenApiConnection",
                         "inputs": {
                             "host": {
                                 "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
                                 "connectionName": "shared_sharepointonline",
-                                "operationId": "PostItem",
+                                "operationId": "GetItems",
                             },
                             "parameters": {
                                 "dataset": SITE_URL,
                                 "table": QUEUE_LIST_ID,
-                                "item/Title": "@triggerOutputs()?['body/{FilenameWithExtension}']",
-                                "item/EventType/Value": "presupuesto_aprobado",
-                                "item/Estado/Value": "Pendiente",
-                                "item/Filename": "@triggerOutputs()?['body/{FilenameWithExtension}']",
-                                "item/FileID": "@triggerOutputs()?['body/{Identifier}']",
-                                "item/FolderPath": "@triggerOutputs()?['body/{Path}']",
-                                "item/FileLink": "@triggerOutputs()?['body/{Link}']",
-                                "item/CreatedByEmail": "@triggerOutputs()?['body/Editor/Email']",
-                                "item/CreatedTime": "@triggerOutputs()?['body/Created']",
-                                "item/Intentos": "0",
-                                "item/Notas": "Registrado por Power Automate",
+                                "$top": 200,
                             },
                             "authentication": "@parameters('$authentication')",
                         },
                         "runAfter": {},
-                    }
+                    },
+                    "Filter_existing_pending_queue_items": {
+                        "type": "Query",
+                        "inputs": {
+                            "from": "@body('Get_existing_queue_items')?['value']",
+                            "where": (
+                                "@and("
+                                "equals(item()?['FileID'],triggerOutputs()?['body/{Identifier}']),"
+                                "equals(item()?['EventType']?['Value'],'presupuesto_aprobado'),"
+                                "or("
+                                "equals(item()?['Estado']?['Value'],'Pendiente'),"
+                                "equals(item()?['Estado']?['Value'],'Procesando')"
+                                ")"
+                                ")"
+                            ),
+                        },
+                        "runAfter": {"Get_existing_queue_items": ["Succeeded"]},
+                    },
+                    "If_no_existing_pending_queue_item": {
+                        "type": "If",
+                        "expression": "@equals(length(body('Filter_existing_pending_queue_items')),0)",
+                        "actions": {
+                            "Create_item_Cola_Automatizacion_Proyectos": {
+                                "type": "OpenApiConnection",
+                                "inputs": {
+                                    "host": {
+                                        "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                                        "connectionName": "shared_sharepointonline",
+                                        "operationId": "PostItem",
+                                    },
+                                    "parameters": {
+                                        "dataset": SITE_URL,
+                                        "table": QUEUE_LIST_ID,
+                                        "item/Title": "@triggerOutputs()?['body/{FilenameWithExtension}']",
+                                        "item/EventType/Value": "presupuesto_aprobado",
+                                        "item/Estado/Value": "Pendiente",
+                                        "item/Filename": "@triggerOutputs()?['body/{FilenameWithExtension}']",
+                                        "item/FileID": "@triggerOutputs()?['body/{Identifier}']",
+                                        "item/FolderPath": "@triggerOutputs()?['body/{Path}']",
+                                        "item/FileLink": "@triggerOutputs()?['body/{Link}']",
+                                        "item/CreatedByEmail": "@triggerOutputs()?['body/Editor/Email']",
+                                        "item/CreatedTime": "@triggerOutputs()?['body/Created']",
+                                        "item/Intentos": "0",
+                                        "item/Notas": "Registrado por Power Automate al crear, modificar o mover a Presupuestos Aprobados",
+                                    },
+                                    "authentication": "@parameters('$authentication')",
+                                },
+                                "runAfter": {},
+                            }
+                        },
+                        "else": {"actions": {}},
+                        "runAfter": {"Filter_existing_pending_queue_items": ["Succeeded"]},
+                    },
                 },
                 "else": {"actions": {}},
                 "runAfter": {},

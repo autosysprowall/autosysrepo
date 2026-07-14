@@ -62,3 +62,25 @@ Si estas variables no están presentes, Python conserva la lógica productiva de
 
 Para ejecutar la prueba real hay que habilitar manualmente los flujos y el
 workflow, apuntando a `test/full-system-lab`.
+
+## Trigger de presupuestos movidos
+
+Para el laboratorio, el registro automático de presupuestos debe usar el flow:
+
+```text
+PA_S1_RegistrarPresupuestoMovido_A_Cola
+```
+
+Este flow usa SharePoint **When a file is created or modified (properties
+only)** sobre:
+
+```text
+/Documentos compartidos/Proyectos/Presupuestos Aprobados
+```
+
+Esto permite detectar archivos que fueron movidos a la carpeta, no solo archivos
+creados originalmente ahí. El flow anterior `PA_S1_RegistrarPresupuestoAprobado`
+usa `When a file is created` y puede no dispararse cuando SharePoint registra el
+movimiento como modificación. Para evitar duplicados, el flow nuevo revisa si ya
+existe un item `Pendiente` o `Procesando` con el mismo `FileID` antes de crear
+otro item en `Cola_Automatizacion_Proyectos`.
